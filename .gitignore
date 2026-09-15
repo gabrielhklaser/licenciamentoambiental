@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Banco do protótipo e saídas locais
+*.db
+*.sqlite
+saida_*.json
+saida_*.docx
+
+# IDE / SO
+.vscode/
+.idea/
+.DS_Store

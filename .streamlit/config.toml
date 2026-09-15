@@ -1,0 +1,10 @@
+# Configuração do Streamlit para o dashboard de licenciamento ambiental
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+primaryColor = "#2e7d32"
+base = "light"

@@ -1,0 +1,25 @@
+# Requisitos do Sistema de Verificação de Licenciamento Ambiental (4 fases)
+# Instalação:  python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
+
+# --- Fase 1: Parser HTML (DOM + RegEx) ---
+beautifulsoup4>=4.12
+lxml>=4.9
+
+# --- Fase 2: Persistência e agentes determinísticos ---
+SQLAlchemy>=2.0
+geoalchemy2>=0.14        # PostGIS (SIRGAS 2000); opcional fora do PostgreSQL
+
+# --- Fase 3: Auditor técnica ---
+pydantic>=2.5
+pypdf>=4.0               # extração de texto de laudos PDF
+# Para o provedor LLM de produção (opcional; usa structured output):
+# langchain>=0.2
+# langchain-openai>=0.1
+
+# --- Fase 4: Dashboard e ofícios ---
+streamlit>=1.31
+pandas>=2.0
+python-docx>=1.1
+
+# Dependência de DEV (apenas para regenerar os laudos de exemplo):
+# reportlab>=4.0
