@@ -49,12 +49,16 @@ def normalizar(texto: Optional[str]) -> str:
     """Remove acentos, converte para maiúsculas e colapsa espaços em branco.
 
     Usada para comparar rótulos/documentos de forma imune a variações de layout.
+    Espaços em torno de "/" são removidos ('Nome / Razão Social' ==
+    'Nome/Razão Social'), pois os formulários oficiais variam a grafia dos
+    rótulos compostos.
     """
     if not texto:
         return ""
     texto = unicodedata.normalize("NFKD", texto)
     texto = "".join(c for c in texto if not unicodedata.combining(c))
-    return re.sub(r"\s+", " ", texto).strip().upper()
+    texto = re.sub(r"\s+", " ", texto).strip().upper()
+    return re.sub(r"\s*/\s*", "/", texto)
 
 
 def para_float(valor_br: Optional[str]) -> Optional[float]:
@@ -108,6 +112,8 @@ class FormularioParser:
     ROTULOS = {
         "nome_razao_social": ["NOME/RAZAO SOCIAL", "RAZAO SOCIAL", "NOME DO EMPREENDEDOR",
                               "NOME OU RAZAO SOCIAL", "EMPREENDEDOR (NOME/RAZAO SOCIAL)"],
+        "nome_fantasia": ["NOME FANTASIA", "NOME FANTASIA (QUANDO HOUVER)",
+                          "NOME DE FANTASIA", "NOME COMERCIAL"],
         "cpf_cnpj": ["CPF/CNPJ", "CPF OU CNPJ", "CNPJ/CPF", "CNPJ OU CPF"],
         "nome_empreendimento": ["NOME DO EMPREENDIMENTO", "EMPREENDIMENTO", "DENOMINACAO DO EMPREENDIMENTO"],
         "ramo_atividade": ["RAMO DE ATIVIDADE", "RAMO DA ATIVIDADE", "ATIVIDADE", "DESCRICAO DA ATIVIDADE"],
@@ -166,8 +172,12 @@ class FormularioParser:
     # Classificação do pleito em ordem de prioridade (LOR/LIR antes de LO/LI para
     # evitar falsos positivos por sub-cadeia). Padrões aplicados sobre texto normalizado.
     PLEITOS = [
-        ("LOR", re.compile(r"LICENCA[S]? DE OPERACAO E REGULARIZACAO|\(\s*LOR\s*\)|\bLOR\b")),
-        ("LIR", re.compile(r"LICENCA[S]? DE INSTALACAO E REGULARIZACAO|\(\s*LIR\s*\)|\bLIR\b")),
+        # LOR/LOR reconhecem as DUAS ordens usadas nos formulários:
+        # "Licença de Operação e Regularização" e "Licença de Regularização e Operação"
+        ("LOR", re.compile(r"LICENCA[S]? DE (?:OPERACAO E REGULARIZACAO|"
+                           r"REGULARIZACAO E OPERACAO)|\(\s*LOR\s*\)|\bLOR\b")),
+        ("LIR", re.compile(r"LICENCA[S]? DE (?:INSTALACAO E REGULARIZACAO|"
+                           r"REGULARIZACAO E INSTALACAO)|\(\s*LIR\s*\)|\bLIR\b")),
         ("LP", re.compile(r"LICENCA[S]? PREVIA|\(\s*LP\s*\)|\bLP\b")),
         ("LI", re.compile(r"LICENCA[S]? DE INSTALACAO|\(\s*LI\s*\)|\bLI\b")),
         ("LO", re.compile(r"LICENCA[S]? DE OPERACAO(?!\s+E\s+REGULARIZACAO)|\(\s*LO\s*\)|\bLO\b")),
@@ -376,9 +386,11 @@ class FormularioParser:
     # ------------------------------------------------------------------
     def extrair_dados_empreendedor(self) -> dict[str, Any]:
         """Extrai Nome/Razão Social e CPF/CNPJ do empreendedor."""
-        resultado: dict[str, Any] = {"nome_razao_social": None, "cpf_cnpj": None}
+        resultado: dict[str, Any] = {"nome_razao_social": None, "nome_fantasia": None,
+                                     "cpf_cnpj": None}
         try:
             resultado["nome_razao_social"] = self._buscar_valor(self.ROTULOS["nome_razao_social"])
+            resultado["nome_fantasia"] = self._buscar_valor(self.ROTULOS["nome_fantasia"])
             if not resultado["nome_razao_social"]:
                 self._registrar_falha("extrair_dados_empreendedor", "nome/razão social ausente")
 

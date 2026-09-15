@@ -13,7 +13,7 @@ from licenciamento.agente_administrativo import AgenteAdministrativo
 from licenciamento.agente_financeiro import AgenteFinanceiro
 from licenciamento.auditor_tecnico import (AuditorTecnico, MetricasRFO,
                                            MetricasSondagem)
-from licenciamento.parser_formulario import FormularioParser
+from licenciamento.parser_formulario import FormularioParser, normalizar as normalizar_texto
 
 RAIZ = Path(__file__).resolve().parents[1]
 EXEMPLOS = RAIZ / "exemplos"
