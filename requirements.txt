@@ -22,5 +22,10 @@ pandas>=2.0
 python-docx>=1.1
 openpyxl>=3.1             # leitura de planilhas Excel (.xlsx) no upload
 
+# OCR de documentos enviados como imagem (png/jpg) - OPCIONAL:
+# requer o binário tesseract-ocr instalado no servidor (idealmente com pt-BR):
+# sudo apt install tesseract-ocr tesseract-ocr-por
+# pytesseract>=0.3
+
 # Dependência de DEV (apenas para regenerar os laudos de exemplo):
 # reportlab>=4.0

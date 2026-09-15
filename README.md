@@ -168,7 +168,12 @@ o TR oficial vigente (5.7) fixa 2 anos — o gabarito segue o oficial, ajustáve
 ## ⚙️ Fase 4 — Dashboard em duas etapas (upload → análise + parecer)
 
 **Etapa 1 — Upload:** a página inicial pede apenas a subida dos documentos do processo:
-**`.htm`/`.html`** (formulário), **`.pdf`**, **Word (`.docx`)**, **Excel (`.xlsx`)** e `.txt`/`.csv`.
+**`.htm`/`.html`** (formulário), **`.pdf`**, **Word (`.docx`)**, **Excel (`.xlsx`)**,
+`.txt`/`.csv` **e IMAGENS (`.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.tif`, `.gif`)** —
+documentações às vezes chegam como foto/escaneamento: o conteúdo é lido por **OCR**
+(`pytesseract`, opcional no servidor) e, sem OCR, o documento entra para **conferência
+manual com preview da imagem** no painel (o casamento com a exigência usa o nome do
+arquivo, ex.: `matricula_imovel.jpg`).
 
 **Etapa 2 — Avaliação:** após carregar os arquivos e clicar em "Analisar documentação":
 

@@ -31,7 +31,8 @@ from licenciamento.calibracao import Calibracao
 from licenciamento.esquemas_tecnicos import StatusValidacao
 from licenciamento.gerador_oficios import GeradorOficios
 from licenciamento.parser_formulario import FormularioParser
-from licenciamento.validador_documentos import (EXTENSOES_TEXTO,
+from licenciamento.validador_documentos import (EXTENSOES_IMAGEM,
+                                                EXTENSOES_TEXTO,
                                                 ValidadorDocumentos)
 
 RAIZ = Path(__file__).resolve().parent
@@ -39,8 +40,20 @@ RAIZ = Path(__file__).resolve().parent
 st.set_page_config(page_title="Licenciamento Ambiental — SEMA Campo Bom",
                    page_icon="🌿", layout="wide")
 
-# Formatos aceitos no upload (etapa 1)
-FORMATOS_UPLOAD = ["htm", "html", "pdf", "docx", "doc", "xlsx", "xls", "txt", "csv", "rtf"]
+# Formatos aceitos no upload (etapa 1) - inclui IMAGENS, pois documentações
+# às vezes são enviadas como fotos/escaneamentos (png, jpg, etc.)
+FORMATOS_UPLOAD = ["htm", "html", "pdf", "docx", "doc", "xlsx", "xls",
+                   "txt", "csv", "rtf",
+                   "png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff", "gif"]
+
+
+def icone_arquivo(nome: str) -> str:
+    """Ícone do arquivo na listagem do upload (imagem x documento)."""
+    if Path(nome).suffix.lower() in EXTENSOES_IMAGEM:
+        return "🖼️"
+    if Path(nome).suffix.lower() in (".htm", ".html"):
+        return "🧾"
+    return "📄"
 
 
 # ======================================================================
@@ -149,6 +162,10 @@ def executar_analise(arquivos: list) -> None:
                                      form.name, form.getvalue()),
                                  "tipo": "FORMULARIO"})
 
+    # bytes das imagens anexadas (preview para conferência manual no painel)
+    imagens = {a.name: a.getvalue() for a in documentos
+               if Path(a.name).suffix.lower() in EXTENSOES_IMAGEM}
+
     # ---- Fase 2: agentes administrativo e financeiro -----------------
     nomes_anexos = [a.name for a in arquivos]
     admin = AgenteAdministrativo().auditar(dados, nomes_anexos) if dados else {
@@ -173,6 +190,7 @@ def executar_analise(arquivos: list) -> None:
         "extras": [e.get("nome") for e in extras],
         "resumo_quadro": resumo_quadro,
         "arquivos": nomes_anexos,
+        "imagens": imagens,
         "exigencias": exigencias,
         "regras": {"fonte": validador.fonte_regras,
                    "revisado": validador.regras_revisadas,
@@ -204,7 +222,13 @@ def pagina_upload() -> None:
     if arquivos:
         st.markdown(f"**{len(arquivos)} arquivo(s) carregado(s):**")
         for arq in arquivos:
-            st.markdown(f"- 📄 `{arq.name}` — {len(arq.getvalue()) / 1024:,.0f} KB")
+            st.markdown(f"- {icone_arquivo(arq.name)} `{arq.name}` — "
+                        f"{len(arq.getvalue()) / 1024:,.0f} KB")
+        qtde_img = sum(1 for a in arquivos if Path(a.name).suffix.lower() in EXTENSOES_IMAGEM)
+        if qtde_img:
+            st.caption(f"🖼️ {qtde_img} arquivo(s) de imagem: o conteúdo é conferido "
+                       f"por OCR quando disponível; sem OCR, entram para conferência "
+                       f"manual com preview na etapa de análise.")
 
     col1, col2, _ = st.columns([1.1, 1.0, 2.2])
     with col1:
@@ -370,6 +394,9 @@ def pagina_analise() -> None:
             if analise.trecho_referencia:
                 st.markdown(f"> 📄 *Trecho do final do documento:* "
                             f"\"{analise.trecho_referencia}\"")
+            if nome in (processo.get("imagens") or {}):
+                with st.expander("🖼️ Ver imagem anexada (conferência manual)"):
+                    st.image(processo["imagens"][nome], width="stretch")
 
     # --------------------------------------------------------------
     # AUDITORIA TÉCNICA (TRs)

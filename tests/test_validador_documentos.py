@@ -203,3 +203,58 @@ def test_extrair_texto_docx_e_xlsx(validador, pasta_tmp):
 def test_extrair_texto_formato_nao_suportado(validador):
     """Extensão estranha ou binário: devolve vazio sem quebrar (log)."""
     assert validador.extrair_texto("arquivo.zip", b"PK\x03\x04...") == ""
+
+
+# ==============================================================================
+# DOCUMENTOS ENVIADOS COMO IMAGEM (png/jpg)
+# ==============================================================================
+def test_identificar_imagem_pelo_nome(validador):
+    """Matrícula enviada como foto casa com a exigência pelo NOME do arquivo."""
+    assert validador.identificar_tipo("matricula_imovel.jpg", "") == "MATRICULA_IMOVEL"
+    assert validador.identificar_tipo("matricula-do-imovel.png", "") == "MATRICULA_IMOVEL"
+    assert validador.identificar_tipo("pgrs_foto.jpeg", "") == "PGRS"
+
+
+def test_analisar_imagem_sem_ocr_revisao_manual(validador):
+    """Imagem sem OCR => REVISAO_MANUAL com orientação + flag de imagem."""
+    r = validador.analisar_documento("matricula_imovel.jpg", "",
+                                     data_referencia=date(2026, 9, 15))
+    assert r.status == StatusValidacao.REVISAO_MANUAL
+    assert any("imagem" in item.lower() for item in r.itens_reprovados)
+    assert r.metricas.get("imagem") is True
+    assert r.metricas.get("ocr_disponivel") is False
+
+
+def test_extrair_texto_imagem_nao_quebra(validador):
+    """Bytes de imagem inválidos ou válidos: extração nunca levanta exceção."""
+    assert validador.extrair_texto("foto.png", b"\x89PNG\r\n conteudo falso") == ""
+
+
+def test_extrair_texto_png_real_sem_ocr(validador):
+    """PNG legítimo (gerado com Pillow): sem tesseract devolve vazio (sem quebrar)."""
+    from PIL import Image
+    import io as _io
+    buffer = _io.BytesIO()
+    Image.new("RGB", (60, 30), color="white").save(buffer, format="PNG")
+    texto = validador.extrair_texto("foto_area.png", buffer.getvalue())
+    assert texto == ""
+
+
+def test_extensoes_imagem_constante():
+    """Formatos de imagem aceitos na página de upload."""
+    for ext in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".gif"):
+        assert ext in __import__("licenciamento.validador_documentos",
+                                 fromlist=["EXTENSOES_IMAGEM"]).EXTENSOES_IMAGEM
+
+
+def test_quadro_casa_exigencia_com_imagem_bem_nomeada(validador):
+    """Imagem 'matricula_imovel.jpg' atende a exigência da matrícula no quadro."""
+    exigencias = ["Cópia da matrícula atualizada do imóvel"]
+    arquivos = [{"nome": "matricula_imovel.jpg", "texto": "", "tipo": "MATRICULA_IMOVEL"}]
+    analises = {"matricula_imovel.jpg": validador.analisar_documento(
+        "matricula_imovel.jpg", "")}
+    linhas, extras = validador.montar_quadro(exigencias, arquivos, analises)
+    assert linhas[0]["arquivo"] == "matricula_imovel.jpg"
+    assert linhas[0]["situacao"] == "PENDENTE"  # conferência manual pendente
+    assert any("imagem" in p_.lower() for p_ in linhas[0]["pendencias"])
+    assert extras == []

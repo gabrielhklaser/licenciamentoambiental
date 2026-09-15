@@ -63,6 +63,11 @@ PADROES_TIPO: dict[str, list[str]] = {
 # Extensões aceitas no upload (alinhadas à página inicial do frontend)
 EXTENSOES_TEXTO = {".pdf", ".docx", ".xlsx", ".xls", ".htm", ".html", ".txt", ".rtf", ".csv"}
 
+# Documentações às vezes chegam como IMAGEM (fotos/escaneamentos): aceitas no
+# upload e analisadas por OCR quando o servidor possui tesseract; sem OCR, o
+# documento segue para CONFERÊNCIA MANUAL com preview no painel.
+EXTENSOES_IMAGEM = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".gif"}
+
 
 def normalizar(texto: Optional[str]) -> str:
     """Minúsculas, sem acentos e com espaços colapsados (para casamento)."""
@@ -111,6 +116,8 @@ class ValidadorDocumentos:
                 return self._texto_xlsx(conteudo)
             if extensao in (".htm", ".html"):
                 return self._texto_html(conteudo)
+            if extensao in EXTENSOES_IMAGEM:
+                return self._texto_ocr(conteudo)
             if extensao in (".txt", ".rtf", ".csv"):
                 return conteudo.decode("utf-8", errors="replace")
             return ""
@@ -155,6 +162,25 @@ class ValidadorDocumentos:
         from bs4 import BeautifulSoup
         return BeautifulSoup(conteudo.decode("utf-8", errors="replace"),
                              "html.parser").get_text(" ", strip=True)
+
+    @staticmethod
+    def _texto_ocr(conteudo: bytes) -> str:
+        """OCR de imagens (fotos/escaneamentos) - OPCIONAL.
+
+        Requer `pytesseract` + binário `tesseract` (idealmente com idioma
+        'por'). Em servidores sem OCR devolve string vazia e o documento é
+        classificado para conferência manual (com preview no painel).
+        """
+        try:
+            from PIL import Image
+            import pytesseract  # opcional - ver requirements.txt
+            imagem = Image.open(io.BytesIO(conteudo))
+            try:
+                return pytesseract.image_to_string(imagem, lang="por") or ""
+            except Exception:  # noqa: BLE001 - idioma 'por' ausente
+                return pytesseract.image_to_string(imagem) or ""
+        except Exception:  # noqa: BLE001 - OCR indisponível não derruba a análise
+            return ""
 
     # ==================================================================
     # 2) IDENTIFICAÇÃO DO TIPO DO DOCUMENTO
@@ -295,7 +321,22 @@ class ValidadorDocumentos:
                            data_referencia: Optional[date] = None) -> ResultadoValidacao:
         """Analisa um anexo: identificação + validação específica do tipo."""
         tipo = self.identificar_tipo(nome_arquivo, texto)
+        eh_imagem = Path(nome_arquivo).suffix.lower() in EXTENSOES_IMAGEM
         if not texto or len(texto.strip()) < 30:
+            if eh_imagem:
+                return ResultadoValidacao(
+                    documento_analisado=nome_arquivo,
+                    norma_tr=f"Documento recebido como imagem "
+                             f"({tipo or 'tipo não identificado'})",
+                    status=StatusValidacao.REVISAO_MANUAL,
+                    itens_reprovados=[
+                        "Documento enviado como IMAGEM (png/jpg) sem texto "
+                        "extraível pelo OCR (recurso indisponível neste servidor "
+                        "ou foto ilegível). Conferir o conteúdo no preview do "
+                        "painel e, se possível, anexar também em PDF - a SEMA "
+                        "não analisa documentos fotografados."],
+                    metricas={"imagem": True, "ocr_disponivel": False},
+                    origem=OrigemAnalise.DETERMINISTICO)
             return ResultadoValidacao(
                 documento_analisado=nome_arquivo,
                 norma_tr=f"Documento recebido ({tipo or 'tipo não identificado'})",
