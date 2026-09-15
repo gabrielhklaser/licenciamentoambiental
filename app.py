@@ -324,6 +324,8 @@ def pagina_analise() -> None:
     c1, c2, c3, c4 = st.columns([1.6, 1.0, 1.2, 0.9])
     c1.metric("Empreendimento", (emp.get("nome_empreendimento") or "—")[:36])
     c2.metric("Licença pleiteada", pleito.get("tipo_licenca") or "—")
+    if pleito.get("metodo_deteccao"):
+        c2.caption(f"via {pleito['metodo_deteccao']}")
     c3.metric("Triagem", (dados.get("status_triagem") or "—").replace("_", " ").upper())
     c4.metric("Taxa (URMs)", _fmt_urm(financeiro.get("total_urm")))
 

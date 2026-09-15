@@ -205,6 +205,18 @@ class FormularioParser:
         ("DECLARACAO", re.compile(r"DECLARACAO")),
     ]
 
+    # Cabeçalhos que iniciam a seção do MOTIVO DO ENCAMINHAMENTO / tipo do pleito
+    # (o tipo da licença vem da MARCAÇÃO feita dentro dela, não das listas de docs)
+    REGEX_SECAO_PLEITO = re.compile(
+        r"MOTIVO\s+DO\s+ENCAMINHAMENTO|MOTIVO\s+DO\s+REQUERIMENTO|"
+        r"TIPO\s+DE\s+LICENCIAMENTO|TIPO\s+DE\s+LICENCA\s+PRETENDIDA|"
+        r"IDENTIFICACAO\s+DO\s+PLEITO", re.I)
+
+    # Marcadores de marcação em texto (formulários convertidos de Word):
+    # (X) ( x ) [x] (✓) ☒ ✔ ☑ - logo antes do rótulo da opção
+    REGEX_MARCADOR_MARCADO = re.compile(
+        r"[(\[\{]\s*[xX✓☒✔☑]\s*[)\]\}]|[✓☒✔☑]")
+
     # Formulários oficiais conhecidos (pacote SEMA): detecção pelo título/texto
     # para escolher o checklist oficial específico de config/checklists_oficiais.json
     FORMULARIOS_CONHECIDOS = {
@@ -609,12 +621,143 @@ class FormularioParser:
     # ------------------------------------------------------------------
     # Bloco 3 - Identificação do Pleito (tipo de licença)
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    def _coletar_secao_da_ancora(self, ancora) -> list:
+        """Devolve os elementos que compõem a seção iniciada pela âncora
+        (elementos seguintes até o próximo heading de nível igual/superior)."""
+        nivel_ancora = None
+        elemento = ancora
+        # sobe até o heading que inicia a seção (ex.: <strong> dentro de <p> ou <h3>)
+        while elemento is not None:
+            if getattr(elemento, "name", None) in ("h1", "h2", "h3", "h4", "h5"):
+                nivel_ancora = int(elemento.name[1])
+                break
+            elemento = elemento.parent
+        if elemento is None:
+            elemento = ancora
+        secao: list = []
+        for irmao in elemento.find_next_siblings():
+            nome = getattr(irmao, "name", None)
+            if nome in ("h1", "h2", "h3", "h4", "h5"):
+                if int(nome[1]) <= (nivel_ancora or 9):
+                    break
+            secao.append(irmao)
+        return secao
+
+    def _texto_da_marcacao(self, input_marcado) -> Optional[str]:
+        """Recupera o rótulo associado a um checkbox/radio marcado no DOM."""
+        try:
+            # 1) <label for="id_do_input">
+            input_id = input_marcado.get("id")
+            if input_id:
+                label = self.soup.find("label", attrs={"for": input_id})
+                if label and label.get_text(" ", strip=True):
+                    return label.get_text(" ", strip=True)
+            # 2) <label> ... <input> ... </label> (input dentro do label)
+            pai_label = input_marcado.find_parent("label")
+            if pai_label and pai_label.get_text(" ", strip=True):
+                return pai_label.get_text(" ", strip=True)
+            # 3) célula/linha/pai textual (tabelas de formulário municipal)
+            for ancestral in input_marcado.parents:
+                nome = getattr(ancestral, "name", None)
+                if nome in ("td", "li", "p", "div"):
+                    texto = ancestral.get_text(" ", strip=True)
+                    if texto:
+                        return texto[:200]
+        except Exception as exc:  # noqa: BLE001
+            self._registrar_falha("_texto_da_marcacao", str(exc))
+        return None
+
+    def _detectar_pleito_por_marcacao(self) -> Optional[dict[str, Any]]:
+        """Localiza a seção do MOTIVO DO ENCAMINHAMENTO À SEMA (ou similar) e
+        lê qual opção está MARCADA no formulário.
+
+        Duas formas de marcação reconhecidas:
+          a) checkbox/radio com atributo `checked` (HTML interativo);
+          b) marcador textual junto ao rótulo: "(X) Licença Prévia", "[x] LOR",
+             "☒ Licença de Operação..." (formulários convertidos de Word).
+
+        Retorna {'tipo_licenca', 'descricao_pleito', 'metodo'} ou None.
+        """
+        try:
+            if not self.soup:
+                return None
+            # --- localiza a âncora da seção pelo título -------------------
+            ancora = None
+            for tag in self.soup.find_all(["h1", "h2", "h3", "h4", "h5",
+                                           "strong", "b", "p", "legend"]):
+                texto = tag.get_text(" ", strip=True)
+                if texto and self.REGEX_SECAO_PLEITO.search(normalizar(texto)):
+                    ancora = tag
+                    break
+            secao = self._coletar_secao_da_ancora(ancora) if ancora else []
+            if not secao:
+                return None
+
+            # --- (a) checkbox/radio MARCADO dentro da seção ---------------
+            for contêiner in secao:
+                for entrada in contêiner.find_all(
+                        "input", attrs={"type": ["checkbox", "radio"]}):
+                    if entrada.has_attr("checked"):
+                        texto = self._texto_da_marcacao(entrada)
+                        if texto:
+                            for sigla, padrao in self.PLEITOS:
+                                if padrao.search(normalizar(texto)):
+                                    return {"tipo_licenca": sigla,
+                                            "descricao_pleito": texto.strip(),
+                                            "metodo": "marcação no formulário "
+                                                      "(checkbox/radio)"}
+
+            # --- (b) marcador textual '(X)' / '☒' antes do rótulo ---------
+            for contêiner in secao:
+                for tag in contêiner.find_all(["td", "li", "p", "label", "div"]):
+                    texto = tag.get_text(" ", strip=True)
+                    if not texto or len(texto) > 200:
+                        continue
+                    texto_n = normalizar(texto)
+                    if self.REGEX_MARCADOR_MARCADO.search(texto):
+                        # remove o marcador e classifica o restante da linha
+                        resto = self.REGEX_MARCADOR_MARCADO.sub(" ", texto, count=1)
+                        resto = re.sub(r"^\s*[)(\]\-–:.]*\s*", " ", resto)
+                        for sigla, padrao in self.PLEITOS:
+                            if padrao.search(normalizar(resto)):
+                                return {"tipo_licenca": sigla,
+                                        "descricao_pleito": texto.strip(),
+                                        "metodo": "marcação no formulário (texto)"}
+        except Exception as exc:  # noqa: BLE001
+            self._registrar_falha("_detectar_pleito_por_marcacao", str(exc))
+        return None
+
     def extrair_tipo_licenca(self) -> dict[str, Any]:
-        """Identifica a espécie do pleito: LP, LI, LO, LIR, LOR, Licença Única, Alvará Florestal, Autorização ou Declaração."""
+        """Identifica a espécie do pleito: LP, LI, LO, LIR, LOR, Licença Única, Alvará Florestal, Autorização ou Declaração.
+
+        Prioridade: (0) MARCAÇÃO na seção MOTIVO DO ENCAMINHAMENTO À SEMA;
+        (1) campo textual 'Tipo de Licença'; (2) 'Pleito:' no texto;
+        (3) varredura geral (último recurso).
+        """
         resultado: dict[str, Any] = {
             "tipo_licenca": None, "descricao_pleito": None, "fases_componentes": [],
+            "metodo_deteccao": None,
         }
         try:
+            # 0) Prioridade MÁXIMA: marcação na seção de motivo do encaminhamento
+            marcacao = self._detectar_pleito_por_marcacao()
+            if marcacao:
+                resultado["tipo_licenca"] = marcacao["tipo_licenca"]
+                resultado["descricao_pleito"] = marcacao["descricao_pleito"]
+                resultado["metodo_deteccao"] = marcacao["metodo"]
+
+            # 1) Campo explícito do formulário (rótulo 'Tipo de Licença' / 'Espécie do Pleito')
+            if resultado["tipo_licenca"] is None:
+                descricao = self._buscar_valor(self.ROTULOS["tipo_licenca"])
+                if descricao:
+                    resultado["descricao_pleito"] = descricao.strip()
+                    desc_norm = normalizar(descricao)
+                    for sigla, padrao in self.PLEITOS:
+                        if padrao.search(desc_norm):
+                            resultado["tipo_licenca"] = sigla
+                            resultado["metodo_deteccao"] = "campo 'Tipo de Licença'"
+                            break
             # 1) Campo explícito do formulário (rótulo 'Tipo de Licença' / 'Espécie do Pleito')
             descricao = self._buscar_valor(self.ROTULOS["tipo_licenca"])
             if descricao:
@@ -652,6 +795,8 @@ class FormularioParser:
                 self._registrar_falha("extrair_tipo_licenca", "tipo de licença não identificado")
             else:
                 resultado["fases_componentes"] = self.FASES_COMPONENTES[resultado["tipo_licenca"]]
+                if resultado["metodo_deteccao"] is None:
+                    resultado["metodo_deteccao"] = "inferido do texto"
         except Exception as exc:  # noqa: BLE001
             self._registrar_falha("extrair_tipo_licenca", str(exc))
         return resultado
@@ -798,10 +943,8 @@ class FormularioParser:
 
             # Cabeçalhos de fase alteram a fase corrente (ignora textos dentro de <li>)
             if tag.name == "li":
-                subsecao = self._classificar_subsecao(texto)
-                if subsecao:
-                    fase_corrente = subsecao
-                    continue
+                # itens de lista são SEMPRE documentos: não re-classificam a fase
+                # (ex.: "Cópia da Licença Prévia" na lista da LI NÃO é cabeçalho LP)
                 if fase_corrente and len(t_norm) > 2 and not self.REGEX_SECAO_DOCS.search(t_norm):
                     # considera apenas <li> de primeiro nível (evita listas aninhadas duplicadas)
                     if tag.find_parent("li") is None:

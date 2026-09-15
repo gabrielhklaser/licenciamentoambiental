@@ -71,8 +71,10 @@ def test_desduplicacao_lor_lp_li_lo():
     dados = _parse("formulario_LOR_medio_alto.htm")
     docs = dados["documentos_exigidos"]
     estat = docs["estatisticas"]
-    assert estat["total_bruto"] == 18
-    assert estat["total_deduplicado"] == 14
+    # 20 itens bruto (6 LP + 7 LI + 7 LO, incluindo 'Cópia da Licença Prévia'
+    # da LI e 'Cópia da Licença de Instalação' da LO, que são DOCUMENTOS)
+    assert estat["total_bruto"] == 20
+    assert estat["total_deduplicado"] == 16
     assert len(estat["removidos"]) == 4
     # a 'Cópia da matrícula do imóvel' (repetida em LP/LI/LO) só aparece uma vez
     matriculas = [d for d in docs["lista_deduplicada"] if "matrícula do imóvel" in d.lower()]
@@ -95,7 +97,7 @@ def test_administrativo_bloqueia_sem_art_e_cruza_checklist():
     resultado = AgenteAdministrativo().auditar(dados, [])
     assert resultado["status_geral"] == "BLOQUEADO" or resultado["bloqueios"] == []
     # sem nenhum anexo, todos os exigidos ficam pendentes
-    assert resultado["resumo"]["total_pendentes"] == 14
+    assert resultado["resumo"]["total_pendentes"] == 16
 
     resultado2 = AgenteAdministrativo().auditar(
         dados, ["formulario_enquadramento_assinado.pdf", "copia_cpf_cnpj.pdf"])

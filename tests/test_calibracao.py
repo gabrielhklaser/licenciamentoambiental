@@ -161,7 +161,7 @@ def test_parser_prefere_checklist_do_html(pasta_tmp):
     dados = parser.gerar_json()
     assert dados["documentos_exigidos"]["fonte_checklist"] == "formulário HTML"
     assert "Documento oficial X" not in dados["documentos_exigidos"]["lista_deduplicada"]
-    assert len(dados["documentos_exigidos"]["lista_deduplicada"]) == 14
+    assert len(dados["documentos_exigidos"]["lista_deduplicada"]) == 16
 
 
 # ==============================================================================
