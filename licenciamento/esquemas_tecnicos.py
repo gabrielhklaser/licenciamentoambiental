@@ -5,7 +5,7 @@ FASE 3 - Contratos de Dados (Pydantic BaseModel)
 
 Esquemas que estruturam STRICTLY a saída das análises, garantindo que o
 resultado da IA (LLM) seja sempre um JSON tipado e validado - evitando
-alucinações e facilitando o consumo pelas Fases 4 (dashboard/ofícios).
+alucinações e facilitando o consumo pela Fase 4 (dashboard/ofícios).
 
 Contrato único de saída por validação (ResultadoValidacao):
     - documento_analisado: str
@@ -41,11 +41,20 @@ class OrigemAnalise(str, Enum):
 # ==============================================================================
 class MetricasSondagem(BaseModel):
     """Parâmetros de Meio Físico / Aterros (RSCC) extraídos do laudo."""
+    contexto: Optional[str] = Field(None, description="RSCC (aterro) ou PARCELAMENTO")
     profundidade_lencol_m: Optional[float] = Field(None, description="Profundidade do lençol freático (m)")
     cota_base_aterro_m: Optional[float] = Field(None, description="Cota base do aterro (m)")
-    distancia_vertical_m: Optional[float] = Field(None, description="Profundidade do lençol - cota base (m)")
-    area_ha: Optional[float] = Field(None, description="Área do aterro (ha)")
-    furos_informados: Optional[int] = Field(None, description="Furos de sondagem informados no laudo")
+    distancia_vertical_m: Optional[float] = Field(None, description="Distância vertical lençol - base (m)")
+    distancia_vertical_informada_m: Optional[float] = Field(
+        None, description="Distância vertical informada diretamente no laudo, se houver")
+    area_ha: Optional[float] = Field(None, description="Área do aterro/projeto (ha)")
+    furos_informados: Optional[int] = Field(None, description="Pontos de sondagem/trincheiras informados")
+    profundidade_investigacao_m: Optional[float] = Field(
+        None, description="Profundidade de investigação das sondagens (m)")
+    ensaios_permeabilidade_informados: Optional[int] = Field(
+        None, description="Ensaios de permeabilidade informados")
+    impermeabilizacao_prevista: Optional[bool] = Field(
+        None, description="O laudo prevê impermeabilização da base (argila compactada)?")
 
 
 class MetricasRFO(BaseModel):
@@ -57,6 +66,10 @@ class MetricasRFO(BaseModel):
     mudas_exigidas: Optional[int] = None
     densidade_proposta_mudas_ha: Optional[float] = None
     densidade_minima_mudas_ha: float = 3000.0
+    especies_plantadas: Optional[int] = Field(None, description="Nº de espécies do plantio proposto")
+    especies_suprimidas: Optional[int] = Field(None, description="Nº de espécies suprimidas")
+    monitoramento_anos: Optional[int] = Field(None, description="Período de monitoramento proposto (anos)")
+    percentual_falha_admitido: Optional[float] = Field(None, description="% de falha admitido no projeto")
 
 
 # ==============================================================================
@@ -66,10 +79,10 @@ class VereditoPRAD(BaseModel):
     """Saída estruturada do LLM para o TR de PRAD (áreas degradadas)."""
     cronograma_fisico_financeiro_presente: bool = Field(
         ..., description="Existe cronograma físico-financeiro DETALHADO?")
-    monitoramento_minimo_4_anos: bool = Field(
-        ..., description="Há previsão expressa de monitoramento por >= 4 anos?")
     periodo_monitoramento_anos: Optional[int] = Field(
         None, description="Período de monitoramento informado, em anos")
+    menciona_relatorio_execucao: bool = Field(
+        False, description="Prevê relatório de execução (prazo de 30 dias)?")
     trecho_cronograma: str = ""
     trecho_monitoramento: str = ""
     justificativa: str = ""
@@ -83,6 +96,8 @@ class VereditoFauna(BaseModel):
                                              description="Métodos de busca PASSIVA identificados")
     amostragem_primavera_verao: bool = Field(
         False, description="Amostragens em primavera ou verão comprovadas?")
+    suficiencia_amostral_curva_coletor: bool = Field(
+        False, description="Suficiência amostral determinada pela curva do coletor?")
     trecho_metodologia: str = ""
     justificativa: str = ""
 

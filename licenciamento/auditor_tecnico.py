@@ -4,28 +4,38 @@ FASE 3 - Agente Técnico de Auditoria (híbrido: determinístico + LLM)
 =====================================================================
 
 O AuditorTecnico recebe os textos extraídos dos laudos técnicos (PDF via OCR
-ou extração direta) e confronta o conteúdo com os Termos de Referência (TRs)
-do órgão ambiental, em duas camadas:
+ou extração direta) e confronta o conteúdo com os TERMOS DE REFERÊNCIA
+OFICIAIS da SEMA Campo Bom (publicados em campobom.rs.gov.br), em duas camadas:
 
 CAMADA DETERMINÍSTICA (funções puras - matemática e lógica):
-    - Meio Físico / RSCC: distância vertical lençol x base do aterro >= 1,5 m;
-      furos de sondagem: mínimo 4 (áreas até 1 ha) + 1 furo por hectare excedente.
-    - RFO: 15 mudas nativas (>1 m) por indivíduo NATIVO suprimido e 3 mudas por
-      EXÓTICO; densidade de plantio >= 3.000 mudas/hectare.
+    - Aterro RSCC (TR 2026): sondagem mínima de 3 pontos até 1,0 ha + 1 ponto
+      por hectare ou fração excedente; profundidade de investigação >= 3,0 m;
+      distância vertical da base do aterro >= 1,50 m acima do nível MÁXIMO do
+      lençol (NBR 15113); VEDADO abaixo de 1,0 m; impermeabilização obrigatória
+      na faixa 1,0-2,0 m; ensaios de permeabilidade: 2 até 1 ha (+1/ha).
+    - Meio Físico / Parcelamento (TR 2025): sondagem mínima de 4 furos até 1 ha
+      + 1 por hectare ou fração; ensaios de permeabilidade: 3 até 1 ha (+1/ha).
+    - RFO (TR 2026 / COMDEMA 02/2017): 15 mudas (>1 m) por indivíduo NATIVO e
+      3 por EXÓTICO suprimido; densidade >= 3.000 mudas/ha; espécies plantadas
+      >= metade das suprimidas; monitoramento mínimo de 2 anos (relatórios
+      anuais); falha máxima de 10%; ART com previsão mínima de 2 anos.
 
 CAMADA SEMÂNTICA (LLM com saída estruturada Pydantic):
-    - PRAD: cronograma físico-financeiro detalhado + monitoramento >= 4 anos;
-    - Fauna: >= 1 método de busca ativa e 1 de busca passiva por grupo,
-      com amostragens em primavera/verão;
-    - PCA: relatórios trimestrais (supressão/movimentação de solo) e
-      semestrais (fase de obras).
+    - PRAD: cronograma físico-financeiro detalhado (item 4.2) + monitoramento
+      mínimo de 2 anos (item 5.7) + relatório de execução em 30 dias (5.1);
+    - Fauna (LFS): >= 1 método de busca ativa e 1 de busca passiva por grupo
+      inventariado, amostragens em primavera/verão e suficiência amostral pela
+      curva do coletor;
+    - PCA: relatórios trimestrais (supressão de vegetação, afugentamento de
+      fauna e movimentação de solo) e semestrais (obras e estruturas).
+
+Também valida por CHECKLIST DE CONTEÚDO os TRs EIV e LCV (itens mínimos).
 
 Arquitetura de LLM: a classe usa a interface ProvedorLLMBase. Por padrão, o
 protótipo opera 100% offline com ProvedorLLMHeuristico (regras determinísticas
 de palavras-chave, marcadas como origem="heuristico_local"). Em produção,
-defina a variável de ambiente LICENCIA_PROVEDOR_LLM=langchain e a chave da API
-para acionar o ProvedorLLMLangChain (chat model com structured output), sem
-alterar o restante do código.
+defina LICENCIA_PROVEDOR_LLM=langchain e a chave da API para acionar o
+ProvedorLLMLangChain (chat model com structured output), sem alterar o resto.
 """
 
 from __future__ import annotations
@@ -65,7 +75,6 @@ class ProvedorLLMHeuristico(ProvedorLLMBase):
     com origem='heuristico_local' para transparência do licenciador.
     """
 
-    # vocabulário técnico dos TRs
     TERMOS_ATIVOS = ["busca ativa", "busca limitada por encontro", "transecto",
                      "pontos de escuta", "escuta ativa", "rede de neblina", "pitfall",
                      "armadilha de intercepta"]
@@ -74,7 +83,8 @@ class ProvedorLLMHeuristico(ProvedorLLMBase):
                        "coleta passiva", "bioacústica passiva"]
     TERMOS_CRONOGRAMA = ["cronograma físico-financeiro", "cronograma fisico-financeiro",
                          "cronograma de execução físico-financeiro", "cronograma de desembolso",
-                         "cronograma físico financeiro"]
+                         "cronograma físico financeiro", "cronograma físico e financeiro",
+                         "cronograma físico e financeiro detalhado"]
 
     @staticmethod
     def _norm(texto: str) -> str:
@@ -97,21 +107,20 @@ class ProvedorLLMHeuristico(ProvedorLLMBase):
             trecho_cron = self._trecho(texto, re.compile(r"cronograma[\w\s-]{0,40}", re.I))
             m = re.search(r"monitoramento[^.;]{0,240}?(\d{1,2})\s*anos", t)
             anos = int(m.group(1)) if m else None
-            m4 = re.search(r"monitoramento[^.;]{0,240}?(quatro|4)\s*anos", t)
             trecho_mon = self._trecho(texto, re.compile(r"monitoramento[^.;]{0,80}", re.I))
-            quatro_ok = bool(m4) or (anos is not None and anos >= 4)
+            m_exec = re.search(r"(relat[óo]rio de execu[çc][ãa]o|30\s*dias)", t)
             just = []
             just.append("Cronograma físico-financeiro detalhado identificado."
                         if cron_presente else
                         "Não foi identificado cronograma físico-financeiro detalhado no documento.")
-            if quatro_ok:
-                just.append(f"Monitoramento previsto por {'4 (quatro)' if m4 else anos} anos (>= 4 anos).")
+            if anos is not None:
+                just.append(f"Monitoramento previsto por {anos} anos.")
             else:
-                just.append("Não comprovado monitoramento por período mínimo de 4 anos.")
+                just.append("Período de monitoramento não identificado no documento.")
             return VereditoPRAD(
                 cronograma_fisico_financeiro_presente=cron_presente,
-                monitoramento_minimo_4_anos=quatro_ok,
                 periodo_monitoramento_anos=anos,
+                menciona_relatorio_execucao=bool(m_exec),
                 trecho_cronograma=trecho_cron,
                 trecho_monitoramento=trecho_mon,
                 justificativa=" ".join(just))
@@ -120,24 +129,24 @@ class ProvedorLLMHeuristico(ProvedorLLMBase):
             ativos = [termo for termo in self.TERMOS_ATIVOS if termo in t]
             passivos = [termo for termo in self.TERMOS_PASSIVOS if termo in t]
             estacao = bool(re.search(r"\b(primavera|verao)\b", t))
+            curva = bool(re.search(r"(curva do coletor|curva de acumulacao|suficiencia amostral)", t))
             trecho = self._trecho(texto, re.compile(r"metodologia|metodologias", re.I))
             just = []
-            if ativos:
-                just.append(f"Busca ativa comprovada ({', '.join(ativos)}).")
+            just.append(f"Busca ativa comprovada ({', '.join(ativos)})." if ativos
+                        else "Não comprovado método de BUSCA ATIVA por grupo inventariado.")
+            just.append(f"Busca passiva comprovada ({', '.join(passivos)})." if passivos
+                        else "Não comprovado método de BUSCA PASSIVA por grupo inventariado.")
+            just.append("Amostragem em primavera/verão comprovada." if estacao
+                        else "Amostragens em primavera ou verão não comprovadas.")
+            if curva:
+                just.append("Suficiência amostral pela curva do coletor comprovada.")
             else:
-                just.append("Não comprovado método de BUSCA ATIVA por grupo inventariado.")
-            if passivos:
-                just.append(f"Busca passiva comprovada ({', '.join(passivos)}).")
-            else:
-                just.append("Não comprovado método de BUSCA PASSIVA por grupo inventariado.")
-            if estacao:
-                just.append("Amostragem em primavera/verão comprovada.")
-            else:
-                just.append("Amostragens em primavera ou verão não comprovadas.")
+                just.append("Suficiência amostral (curva do coletor) não comprovada.")
             return VereditoFauna(
                 metodos_busca_ativa=ativos,
                 metodos_busca_passiva=passivos,
                 amostragem_primavera_verao=estacao,
+                suficiencia_amostral_curva_coletor=curva,
                 trecho_metodologia=trecho,
                 justificativa=" ".join(just))
 
@@ -200,37 +209,82 @@ def _fabricar_provedor_padrao() -> ProvedorLLMBase:
 # AuditorTecnico
 # ==============================================================================
 class AuditorTecnico:
-    """Agente Técnico de Auditoria: regras matemáticas (TR) + validações semânticas."""
+    """Agente Técnico de Auditoria: regras matemáticas (TR) + validações semânticas.
 
-    # ---- Constantes dos Termos de Referência (gabarito) ----------------------
-    DISTANCIA_MINIMA_LENCOl_M = 1.5        # RSCC: lençol >= 1,5 m da base do aterro
-    FUROS_BASE = 4                          # sondagem: 4 furos até 1 ha
-    FUROS_POR_HA_EXCEDENTE = 1              # +1 furo por hectare excedente
-    RFO_MUDAS_POR_NATIVO = 15               # 15 mudas nativas (>1 m) / indivíduo nativo
-    RFO_MUDAS_POR_EXOTICO = 3               # 3 mudas / indivíduo exótico
-    RFO_DENSIDADE_MINIMA = 3000.0           # mudas/hectare
-    PRAD_MONITORAMENTO_MINIMO_ANOS = 4
-    PCA_TRIMESTRAL = "trimestral"           # supressão/movimentação de solo
-    PCA_SEMESTRAL = "semestral"             # fase de obras
+    Os parâmetros abaixo seguem os TRs OFICIAIS da SEMA Campo Bom e podem ser
+    sobrescritos por config/gabarito_trs.json (fonte com trechos e páginas).
+    """
 
-    # Parâmetros efetivos (sobrescritos por config/gabarito_trs.json quando presente,
-    # gerado pela ingestão dos Termos de Referência oficiais)
+    # ---- Parâmetros dos TRs oficiais (valores padrão = gabarito oficial) -----
+    # Aterro RSCC (TR 2026, itens 2.3 e 2.4)
+    RSCC_SONDAGEM_BASE = 3                  # 3 pontos até 1,0 ha
+    RSCC_SONDAGEM_POR_HA = 1                # +1 por hectare ou fração excedente
+    RSCC_PROFUNDIDADE_M = 3.0               # profundidade mínima de investigação
+    RSCC_DISTANCIA_MINIMA_M = 1.5           # base >= 1,50 m acima do nível máximo do lençol
+    RSCC_DISTANCIA_VEDADA_M = 1.0           # vedado dispor a menos de 1,0 m
+    RSCC_IMPERM_MIN_M = 1.0                 # faixa de impermeabilização obrigatória
+    RSCC_IMPERM_MAX_M = 2.0
+    RSCC_ENSAIOS_BASE = 2                   # 2 ensaios de permeabilidade até 1,0 ha
+    RSCC_ENSAIOS_POR_HA = 1
+    # Meio Físico / Parcelamento (TR 2025, itens 2.1.5 e 2.1.6)
+    PARC_SONDAGEM_BASE = 4                  # 4 furos até 1 ha
+    PARC_SONDAGEM_POR_HA = 1
+    PARC_PROFUNDIDADE_M = 3.0
+    PARC_ENSAIOS_BASE = 3
+    PARC_ENSAIOS_POR_HA = 1
+    # RFO (TR 2026, itens 3.3, 3.7 e 3.9)
+    RFO_MUDAS_POR_NATIVO = 15
+    RFO_MUDAS_POR_EXOTICO = 3
+    RFO_DENSIDADE_MINIMA = 3000.0
+    RFO_RAZAO_ESPECIES = 0.5                # espécies plantadas >= metade das suprimidas
+    RFO_MONITORAMENTO_ANOS = 2
+    RFO_FALHA_MAX_PCT = 10.0
+    # PRAD (TR 2026, itens 4.2, 5.1 e 5.7)
+    PRAD_MONITORAMENTO_ANOS = 2             # TR oficial (especificação original pedia 4)
+    PRAD_EXECUCAO_DIAS = 30
+    PRAD_PRIMEIRO_RELATORIO_MESES = 6
+    # PCA (TR 2026, item 5.1)
+    PCA_TRIMESTRAL = "trimestral"
+    PCA_SEMESTRAL = "semestral"
+
     PARAMETROS_PADRAO = {
-        "rscc_distancia_minima_lencol_m": DISTANCIA_MINIMA_LENCOl_M,
-        "rscc_furos_base": FUROS_BASE,
-        "rscc_furos_por_ha_excedente": FUROS_POR_HA_EXCEDENTE,
+        "rscc_distancia_minima_lencol_m": RSCC_DISTANCIA_MINIMA_M,
+        "rscc_distancia_vedada_m": RSCC_DISTANCIA_VEDADA_M,
+        "rscc_impermeabilizacao_min_m": RSCC_IMPERM_MIN_M,
+        "rscc_impermeabilizacao_max_m": RSCC_IMPERM_MAX_M,
+        "rscc_sondagem_base": RSCC_SONDAGEM_BASE,
+        "rscc_sondagem_por_ha_excedente": RSCC_SONDAGEM_POR_HA,
+        "rscc_profundidade_investigacao_m": RSCC_PROFUNDIDADE_M,
+        "rscc_ensaios_permeabilidade_base": RSCC_ENSAIOS_BASE,
+        "rscc_ensaios_por_ha_excedente": RSCC_ENSAIOS_POR_HA,
+        "parcelamento_sondagem_base": PARC_SONDAGEM_BASE,
+        "parcelamento_sondagem_por_ha_excedente": PARC_SONDAGEM_POR_HA,
+        "parcelamento_profundidade_investigacao_m": PARC_PROFUNDIDADE_M,
+        "parcelamento_ensaios_permeabilidade_base": PARC_ENSAIOS_BASE,
+        "parcelamento_ensaios_por_ha_excedente": PARC_ENSAIOS_POR_HA,
         "rfo_mudas_por_nativo": RFO_MUDAS_POR_NATIVO,
         "rfo_mudas_por_exotico": RFO_MUDAS_POR_EXOTICO,
         "rfo_densidade_minima_mudas_ha": RFO_DENSIDADE_MINIMA,
-        "prad_monitoramento_minimo_anos": PRAD_MONITORAMENTO_MINIMO_ANOS,
+        "rfo_razao_minima_especies": RFO_RAZAO_ESPECIES,
+        "rfo_monitoramento_minimo_anos": RFO_MONITORAMENTO_ANOS,
+        "rfo_falha_maxima_percentual": RFO_FALHA_MAX_PCT,
+        "rfo_art_previsao_minima_anos": 2,
+        "prad_monitoramento_minimo_anos": PRAD_MONITORAMENTO_ANOS,
+        "prad_relatorio_execucao_dias": PRAD_EXECUCAO_DIAS,
+        "prad_primeiro_monitoramento_meses": PRAD_PRIMEIRO_RELATORIO_MESES,
         "pca_periodicidade_supressao": PCA_TRIMESTRAL,
         "pca_periodicidade_obras": PCA_SEMESTRAL,
+        "fauna_min_busca_ativa_por_grupo": 1,
+        "fauna_min_busca_passiva_por_grupo": 1,
+        "fauna_suficiencia_curva_coletor": True,
+        "fauna_app_entorno_m": 100,
+        "fauna_uc_raio_km": 10,
     }
 
     def __init__(self, provedor_llm: Optional[ProvedorLLMBase] = None,
                  caminho_gabarito: Optional[str] = None):
         self.parametros: dict[str, Any] = dict(self.PARAMETROS_PADRAO)
-        self.fonte_gabarito = "padrões internos do código (aguardando TRs oficiais)"
+        self.fonte_gabarito = "TRs oficiais SEMA Campo Bom (padrões internos do código)"
         self.gabarito_revisado = False
         self._aplicar_gabarito(caminho_gabarito)
         self.provedor = provedor_llm or _fabricar_provedor_padrao()
@@ -316,12 +370,27 @@ class AuditorTecnico:
         texto = f"{valor:,.{casas}f}"
         return texto.replace(",", "X").replace(".", ",").replace("X", ".")
 
-    def extrair_parametros_sondagem(self, texto: str) -> MetricasSondagem:
-        """Extrai profundidade do lençol, cota base do aterro, área e nº de furos."""
+    @staticmethod
+    def _detectar_contexto_sondagem(texto: str) -> str:
+        """Define o gabarito de sondagem: 'RSCC' (aterro) ou 'PARCELAMENTO'."""
+        t = ProvedorLLMHeuristico._norm(texto)
+        if any(k in t for k in ["aterro", "rscc", "residuos da construcao civil",
+                                "células de deposicao", "celulas de deposicao"]):
+            return "RSCC"
+        if any(k in t for k in ["parcelamento", "loteamento", "laudo geologico",
+                                "desmembramento", "gleba a ser parcelada"]):
+            return "PARCELAMENTO"
+        return "RSCC"  # padrão mais restritivo na distância do lençol
+
+    def extrair_parametros_sondagem(self, texto: str,
+                                    contexto: Optional[str] = None) -> MetricasSondagem:
+        """Extrai lençol, cota base, área, sondagens, profundidade e ensaios."""
+        contexto = contexto or self._detectar_contexto_sondagem(texto)
+
         prof = self._num(re.compile(
             r"len[çc]ol\s+fre[áa]tico[^.;\d]{0,120}?(-?\d{1,2}[.,]?\d{0,2})\s*m", re.I), texto) \
             or self._num(re.compile(
-                r"profundidade[^.;\d]{0,80}?(-?\d{1,2}[.,]?\d{0,2})\s*m", re.I), texto)
+                r"profundidade\s+do\s+len[çc]ol[^.;\d]{0,60}?(-?\d{1,2}[.,]?\d{0,2})\s*m", re.I), texto)
         cota = self._num(re.compile(
             r"cota\s+base[^.;\d\-]{0,80}?(-?\d{1,2}[.,]?\d{0,2})", re.I), texto) \
             or self._num(re.compile(
@@ -329,15 +398,53 @@ class AuditorTecnico:
         area = self._num(re.compile(
             r"[áa]rea[^.;\d]{0,60}?(\d{1,3}[.,]?\d{0,2})\s*(?:ha|hectare)", re.I), texto)
         furos = self._num(re.compile(
-            r"(\d{1,2})\s*furos?\s+de\s+sondagem", re.I), texto) \
+            r"(\d{1,2})\s*(?:furos?|pontos?|trincheiras?)\s+(?:de\s+)?(?:sondagem|investiga)", re.I), texto) \
             or self._num(re.compile(
-                r"furos?\s+de\s+sondagem[^.;\d]{0,40}?(\d{1,2})", re.I), texto)
+                r"(?:sondagens?|trincheiras?|furos?)[^.;\d]{0,40}?(\d{1,2})\s*(?:pontos?|furos?)?", re.I), texto)
+        dist_info = self._num(re.compile(
+            r"dist[âa]ncia\s+vertical[^.;\d]{0,100}?(\d{1,2}[.,]?\d{0,2})\s*m", re.I), texto)
+        prof_inv = self._num(re.compile(
+            r"(?:profundidade|profundidades)[^.;]{0,60}?(\d{1,2}[.,]?\d{0,2})\s*m(?:etros)?\s+"
+            r"de\s+(?:profundidade|investiga)", re.I), texto) \
+            or self._num(re.compile(
+                r"(?:sondagem|investiga[çc][ãa]o|trincheira)s?[^.;]{0,80}?(\d{1,2}[.,]?\d{0,2})\s*"
+                r"m(?:etros)?\s+de\s+profundidade", re.I), texto)
+        ensaios = self._num(re.compile(
+            r"(\d{1,2})\s*ensaios?\s+de\s+permeabilidade", re.I), texto) \
+            or self._num(re.compile(
+                r"ensaios?\s+de\s+permeabilidade[^.;\d]{0,40}?(\d{1,2})", re.I), texto)
+        imperm = bool(re.search(r"impermeabiliza|argila\s+compactada", texto, re.I))
+
         return MetricasSondagem(
-            profundidade_lencol_m=prof, cota_base_aterro_m=cota, area_ha=area,
-            furos_informados=int(furos) if furos is not None else None)
+            contexto=contexto,
+            profundidade_lencol_m=prof, cota_base_aterro_m=cota,
+            distancia_vertical_informada_m=dist_info, area_ha=area,
+            furos_informados=int(furos) if furos is not None else None,
+            profundidade_investigacao_m=prof_inv,
+            ensaios_permeabilidade_informados=int(ensaios) if ensaios is not None else None,
+            impermeabilizacao_prevista=imperm if (imperm or "aterro" in ProvedorLLMHeuristico._norm(texto)) else None)
+
+    @staticmethod
+    def _densidade_proposta(texto: str) -> Optional[float]:
+        """Extrai a densidade de plantio PROPOSTA (mudas/ha), ignorando valores
+        citados como mínimo normativo (ex.: laudo que transcreve o TR:
+        'densidade mínima de 3.000 mudas/hectare')."""
+        padrao = re.compile(
+            r"(\d{1,3}(?:[.]\d{3})*(?:[.,]\d+)?)\s*mudas?\s*(?:/|por\s+)?\s*(?:ha|hectare)", re.I)
+        for achou in padrao.finditer(texto):
+            contexto_anterior = texto[max(0, achou.start() - 45):achou.start()].lower()
+            if re.search(r"m[íi]nim", contexto_anterior):
+                continue  # mínimo normativo citado - não é a proposta
+            bruto = achou.group(1)
+            if "," in bruto:
+                bruto = bruto.replace(".", "").replace(",", ".")
+            else:
+                bruto = bruto.replace(".", "")
+            return float(bruto)
+        return None
 
     def extrair_parametros_rfo(self, texto: str) -> MetricasRFO:
-        """Extrai supressões, mudas propostas e densidade de plantio do laudo RFO."""
+        """Extrai supressões, mudas, densidade, espécies e monitoramento do laudo RFO."""
         nativos = self._num(re.compile(
             r"(\d{1,5})\s*indiv[íi]duos?\s+nativos", re.I), texto) \
             or self._num(re.compile(
@@ -350,26 +457,65 @@ class AuditorTecnico:
             r"(\d{1,3}(?:[.]\d{3})*)\s*mudas?\s+nativas", re.I), texto)
         mudas_exoticas = self._num(re.compile(
             r"(\d{1,3}(?:[.]\d{3})*)\s*mudas?\s+de\s+(?:esp[ée]cies\s+)?ex[óo]ticas?", re.I), texto)
-        densidade = self._num(re.compile(
-            r"(\d{1,3}(?:[.]\d{3})*(?:[.,]\d+)?)\s*mudas?\s*(?:/|por\s+)?\s*(?:ha|hectare)", re.I), texto)
+        densidade = self._densidade_proposta(texto)
+        especies_plantadas = self._num(re.compile(
+            r"(\d{1,3})\s*esp[ée]cies?[^\n.;]{0,80}?(?:plantio|plantad|utilizadas|compensa|reposi)", re.I), texto)
+        especies_suprimidas = self._num(re.compile(
+            r"(\d{1,3})\s*esp[ée]cies?[^\n.;]{0,60}?suprimid", re.I), texto)
+        monitoramento = self._num(re.compile(
+            r"monitorament[^\n.;]{0,120}?(\d{1,2})\s*anos", re.I), texto)
+        falha = self._num(re.compile(
+            r"(\d{1,2})\s*%?\s*de\s*falha", re.I), texto) \
+            or self._num(re.compile(r"falha[^\n.;]{0,40}?(\d{1,2})\s*%", re.I), texto)
         return MetricasRFO(
             nativos_suprimidos=int(nativos) if nativos is not None else None,
             exoticos_suprimidos=int(exoticos) if exoticos is not None else None,
             mudas_nativas_propostas=int(mudas_nativas) if mudas_nativas is not None else None,
             mudas_exoticas_propostas=int(mudas_exoticas) if mudas_exoticas is not None else None,
-            densidade_proposta_mudas_ha=densidade)
+            densidade_proposta_mudas_ha=densidade,
+            especies_plantadas=int(especies_plantadas) if especies_plantadas is not None else None,
+            especies_suprimidas=int(especies_suprimidas) if especies_suprimidas is not None else None,
+            monitoramento_anos=int(monitoramento) if monitoramento is not None else None,
+            percentual_falha_admitido=falha)
 
     # ==========================================================================
     # CAMADA DETERMINÍSTICA - regras puras (funções testáveis)
     # ==========================================================================
-    def calcular_furos_exigidos(self, area_ha: float) -> int:
-        """TR RSCC: mínimo de furos de sondagem conforme a área (hectares)."""
-        base = int(self.parametros["rscc_furos_base"])
-        por_ha = int(self.parametros["rscc_furos_por_ha_excedente"])
+    def calcular_pontos_sondagem_exigidos(self, area_ha: float,
+                                          contexto: str = "RSCC") -> int:
+        """TR: pontos/furos de sondagem mínimos conforme a área e o contexto.
+
+        RSCC (TR Aterro 2026, 2.3): 3 pontos até 1,0 ha + 1 por hectare ou fração;
+        Parcelamento (TR Meio Físico 2025, 2.1.5.2): 4 furos até 1 ha + 1 por ha
+        ou fração que ultrapasse 1 ha.
+        """
+        if contexto == "PARCELAMENTO":
+            base = int(self.parametros["parcelamento_sondagem_base"])
+            por_ha = int(self.parametros["parcelamento_sondagem_por_ha_excedente"])
+        else:
+            base = int(self.parametros["rscc_sondagem_base"])
+            por_ha = int(self.parametros["rscc_sondagem_por_ha_excedente"])
         if area_ha <= 1.0:
             return base
-        hectares_excedentes = math.ceil(area_ha - 1.0)
+        hectares_excedentes = math.ceil(area_ha - 1.0)  # 'cada hectare ou fração'
         return base + hectares_excedentes * por_ha
+
+    # Compatibilidade com chamadas antigas dos testes (contexto RSCC por padrão)
+    def calcular_furos_exigidos(self, area_ha: float, contexto: str = "RSCC") -> int:
+        return self.calcular_pontos_sondagem_exigidos(area_ha, contexto)
+
+    def calcular_ensaios_permeabilidade_exigidos(self, area_ha: float,
+                                                 contexto: str = "RSCC") -> int:
+        """TR: ensaios de permeabilidade mínimos (RSCC: 2 até 1 ha; Parcelamento: 3)."""
+        if contexto == "PARCELAMENTO":
+            base = int(self.parametros["parcelamento_ensaios_permeabilidade_base"])
+            por_ha = int(self.parametros["parcelamento_ensaios_por_ha_excedente"])
+        else:
+            base = int(self.parametros["rscc_ensaios_permeabilidade_base"])
+            por_ha = int(self.parametros["rscc_ensaios_por_ha_excedente"])
+        if area_ha <= 1.0:
+            return base
+        return base + math.ceil(area_ha - 1.0) * por_ha
 
     def calcular_mudas_exigidas(self, nativos: int, exoticos: int) -> int:
         """TR RFO: mudas por nativo suprimido + mudas por exótico suprimido."""
@@ -379,48 +525,111 @@ class AuditorTecnico:
     # --------------------------------------------------------------------------
     def validar_sondagem_aterramento(self, nome_documento: str,
                                      metricas: MetricasSondagem) -> ResultadoValidacao:
-        """Valida Meio Físico (RSCC): distância do lençol >= 1,5 m e nº de furos."""
-        metricas.distancia_vertical_m = (
-            round(metricas.profundidade_lencol_m - metricas.cota_base_aterro_m, 2)
-            if metricas.profundidade_lencol_m is not None
-            and metricas.cota_base_aterro_m is not None else None)
+        """Valida Meio Físico conforme o CONTEXTO do laudo (RSCC ou PARCELAMENTO).
+
+        RSCC (TR Aterro 2026): lençol >= 1,50 m (vedado < 1,0 m), impermeabilização
+        obrigatória na faixa 1,0-2,0 m, sondagens >= 3 + 1/ha, ensaios >= 2 + 1/ha,
+        profundidade >= 3,0 m.
+        PARCELAMENTO (TR Meio Físico 2025): sondagens >= 4 + 1/ha, ensaios >= 3 + 1/ha,
+        profundidade >= 3,0 m (sem regra de distância do lençol).
+        """
+        prefixo = "parcelamento" if metricas.contexto == "PARCELAMENTO" else "rscc"
+        norma = ("TR Meio Físico - Aterro RSCC (sondagem/lençol - 2026)"
+                 if prefixo == "rscc" else
+                 "TR Meio Físico - Laudo Geológico Parcelamento (2025)")
+
+        # distância vertical: prioriza a informada no laudo; senão calcula
+        if metricas.distancia_vertical_informada_m is not None:
+            metricas.distancia_vertical_m = metricas.distancia_vertical_informada_m
+        elif metricas.profundidade_lencol_m is not None and metricas.cota_base_aterro_m is not None:
+            metricas.distancia_vertical_m = round(
+                metricas.profundidade_lencol_m - metricas.cota_base_aterro_m, 2)
 
         reprovados: list[str] = []
         trechos: list[str] = []
 
-        if metricas.distancia_vertical_m is None:
-            return ResultadoValidacao(
-                documento_analisado=nome_documento, norma_tr="TR Meio Físico - RSCC (sondagem/aterro)",
-                status=StatusValidacao.REVISAO_MANUAL,
-                itens_reprovados=["Parâmetros de sondagem (lençol freático/cota base) não "
-                                  "localizados no texto - conferência manual necessária."],
-                metricas=metricas.model_dump(), origem=OrigemAnalise.DETERMINISTICO)
+        # ---- Distância do lençol (exclusivo do contexto RSCC) ---------------
+        if prefixo == "rscc":
+            if metricas.distancia_vertical_m is None:
+                return ResultadoValidacao(
+                    documento_analisado=nome_documento, norma_tr=norma,
+                    status=StatusValidacao.REVISAO_MANUAL,
+                    itens_reprovados=["Parâmetros de sondagem (lençol freático/cota base) não "
+                                      "localizados no texto - conferência manual necessária."],
+                    metricas=metricas.model_dump(), origem=OrigemAnalise.DETERMINISTICO)
 
-        if metricas.distancia_vertical_m < self.parametros['rscc_distancia_minima_lencol_m']:
-            reprovados.append(
-                f"Furo de sondagem insuficiente conforme exigência técnica mínima: distância "
-                f"vertical entre a cota base do aterro ({self._fmt_br(metricas.cota_base_aterro_m, 2)} m) "
-                f"e o lençol freático ({self._fmt_br(metricas.profundidade_lencol_m, 2)} m) é de "
-                f"{self._fmt_br(metricas.distancia_vertical_m, 2)} m, inferior ao mínimo de "
-                f"{self._fmt_br(self.parametros['rscc_distancia_minima_lencol_m'], 1)} m.")
-        trechos.append(f"lençol freático: {metricas.profundidade_lencol_m} m; "
-                       f"cota base: {metricas.cota_base_aterro_m} m")
+            d = metricas.distancia_vertical_m
+            vedada = float(self.parametros["rscc_distancia_vedada_m"])
+            minima = float(self.parametros["rscc_distancia_minima_lencol_m"])
+            imp_min = float(self.parametros["rscc_impermeabilizacao_min_m"])
+            imp_max = float(self.parametros["rscc_impermeabilizacao_max_m"])
 
+            if d < vedada:
+                reprovados.append(
+                    f"IMPOSSIBILIDADE DE IMPLANTAÇÃO: distância vertical entre a base do aterro e o "
+                    f"lençol freático de {self._fmt_br(d, 2)} m é INFERIOR a {self._fmt_br(vedada, 1)} m, "
+                    f"hipótese terminantemente PROIBIDA pelo TR Aterro RSCC (item 2.4) e pela NBR 15113.")
+            elif d < minima:
+                reprovados.append(
+                    f"Furo de sondagem insuficiente conforme exigência técnica mínima: distância "
+                    f"vertical de {self._fmt_br(d, 2)} m é inferior ao mínimo de "
+                    f"{self._fmt_br(minima, 1)} m acima do nível MÁXIMO do lençol freático "
+                    f"(TR Aterro RSCC, item 2.4 / NBR 15113).")
+            trechos.append(f"distância vertical: {self._fmt_br(d, 2)} m "
+                           f"(mínimo {self._fmt_br(minima, 1)} m)")
+
+            # Impermeabilização obrigatória na faixa 1,0-2,0 m
+            if imp_min <= d < imp_max and metricas.impermeabilizacao_prevista is not True:
+                reprovados.append(
+                    f"IMPERMEABILIZAÇÃO OBRIGATÓRIA: com distância vertical de "
+                    f"{self._fmt_br(d, 2)} m (faixa entre {self._fmt_br(imp_min, 1)} e "
+                    f"{self._fmt_br(imp_max, 1)} m), o TR Aterro RSCC (item 2.4) exige "
+                    f"impermeabilização da base com camada de argila compactada de no mínimo "
+                    f"20 cm (k entre 10⁻⁶ e 10⁻⁷ cm/s) e o laudo não comprova sua previsão.")
+
+        # ---- Sondagens (nº de pontos/furos) ---------------------------------
         if metricas.area_ha is not None:
-            exigidos = self.calcular_furos_exigidos(metricas.area_ha)
+            exigidos = self.calcular_pontos_sondagem_exigidos(metricas.area_ha, metricas.contexto)
             if metricas.furos_informados is None:
-                reprovados.append("Quantidade de furos de sondagem não informada no laudo.")
+                reprovados.append("Quantidade de pontos de sondagem/trincheiras não informada no laudo.")
             elif metricas.furos_informados < exigidos:
                 reprovados.append(
-                    f"Quantidade de furos de sondagem insuficiente: informados "
-                    f"{metricas.furos_informados} furos para área de {metricas.area_ha} ha "
-                    f"(exigência mínima do TR: {exigidos} furos - 4 base + 1 por hectare excedente).")
-            trechos.append(f"furos informados: {metricas.furos_informados} "
+                    f"Quantidade de pontos de sondagem insuficiente: informados "
+                    f"{metricas.furos_informados} pontos para área de {self._fmt_br(metricas.area_ha, 2)} ha "
+                    f"(exigência do TR: {exigidos} pontos - base {self._fmt_br(exigidos - (0 if metricas.area_ha <= 1.0 else 0))} "
+                    f"+ 1 por hectare ou fração excedente).")
+            trechos.append(f"pontos de sondagem: {metricas.furos_informados or 'n/d'} "
                            f"(exigidos: {exigidos})")
+
+            # ---- Profundidade de investigação (>= 3,0 m em ambos os TRs) ----
+            prof_min = float(self.parametros[f"{prefixo}_profundidade_investigacao_m"])
+            if metricas.profundidade_investigacao_m is not None \
+                    and metricas.profundidade_investigacao_m < prof_min:
+                reprovados.append(
+                    f"Profundidade de investigação insuficiente: {self._fmt_br(metricas.profundidade_investigacao_m, 1)} m "
+                    f"(mínimo de {self._fmt_br(prof_min, 1)} m, ou até o nível freático/embasamento).")
+
+            # ---- Ensaios de permeabilidade -----------------------------------
+            exigidos_ens = self.calcular_ensaios_permeabilidade_exigidos(
+                metricas.area_ha, metricas.contexto)
+            if metricas.ensaios_permeabilidade_informados is None:
+                reprovados.append(
+                    f"Ensaios de permeabilidade não identificados no laudo - mínimo de {exigidos_ens} "
+                    f"ensaios para áreas até 1,0 ha (+1 por hectare ou fração excedente), conforme "
+                    f"NBR 7229/13969.")
+            elif metricas.ensaios_permeabilidade_informados < exigidos_ens:
+                reprovados.append(
+                    f"Ensaios de permeabilidade insuficientes: informados "
+                    f"{metricas.ensaios_permeabilidade_informados} (exigidos: {exigidos_ens}).")
+            trechos.append(f"ensaios de permeabilidade: "
+                           f"{metricas.ensaios_permeabilidade_informados or 'n/d'} (exigidos: {exigidos_ens})")
+        else:
+            reprovados.append("Área do projeto (ha) não identificada no laudo - não é possível "
+                              "verificar o critério amostral de sondagens e ensaios.")
 
         return ResultadoValidacao(
             documento_analisado=nome_documento,
-            norma_tr="TR Meio Físico - RSCC (sondagem/aterro)",
+            norma_tr=norma,
             status=StatusValidacao.CONFORME if not reprovados else StatusValidacao.PENDENTE,
             itens_reprovados=reprovados,
             trecho_referencia=" | ".join(t for t in trechos if t),
@@ -429,7 +638,8 @@ class AuditorTecnico:
 
     # --------------------------------------------------------------------------
     def validar_rfo(self, nome_documento: str, metricas: MetricasRFO) -> ResultadoValidacao:
-        """Valida Reposição Florestal Obrigatória (proporção de mudas + densidade)."""
+        """Valida RFO (TR 2026): mudas 15/3, densidade 3.000/ha, espécies >= 1/2 das
+        suprimidas, monitoramento >= 2 anos e falha <= 10%."""
         reprovados: list[str] = []
         trechos: list[str] = []
 
@@ -445,28 +655,62 @@ class AuditorTecnico:
         nativos = metricas.nativos_suprimidos or 0
         exoticos = metricas.exoticos_suprimidos or 0
         metricas.mudas_exigidas = self.calcular_mudas_exigidas(nativos, exoticos)
-        propostas_nativas = metricas.mudas_nativas_propostas or 0
+        propostas = (metricas.mudas_nativas_propostas or 0) + (metricas.mudas_exoticas_propostas or 0)
 
-        if propostas_nativas < metricas.mudas_exigidas:
+        # ---- 1) Quantidade de mudas (15/nativo + 3/exótico) --------------
+        if propostas < metricas.mudas_exigidas:
             reprovados.append(
-                f"Quantidade de mudas insuficiente: propostas {self._fmt_br(propostas_nativas)} "
-                f"mudas nativas para {nativos} indivíduos nativos e {exoticos} exóticos "
-                f"suprimidos (exigência do TR: 15 mudas por nativo + 3 por exótico = "
-                f"{self._fmt_br(metricas.mudas_exigidas)} mudas).")
-        trechos.append(f"proposta: {self._fmt_br(propostas_nativas)} mudas nativas "
+                f"Quantidade de mudas insuficiente: propostas {self._fmt_br(propostas)} mudas "
+                f"para {nativos} indivíduos nativos e {exoticos} exóticos suprimidos "
+                f"(exigência do TR RFO/COMDEMA 02/2017: 15 mudas > 1 m por nativo + 3 por "
+                f"exótico = {self._fmt_br(metricas.mudas_exigidas)} mudas).")
+        trechos.append(f"proposta: {self._fmt_br(propostas)} mudas "
                        f"(exigidas: {self._fmt_br(metricas.mudas_exigidas)})")
 
+        # ---- 2) Densidade >= 3.000 mudas/ha ------------------------------
         if metricas.densidade_proposta_mudas_ha is not None:
-            if metricas.densidade_proposta_mudas_ha < self.parametros['rfo_densidade_minima_mudas_ha']:
+            dens_min = float(self.parametros["rfo_densidade_minima_mudas_ha"])
+            if metricas.densidade_proposta_mudas_ha < dens_min:
                 reprovados.append(
                     f"Densidade de plantio abaixo do mínimo técnico: proposta de "
                     f"{self._fmt_br(metricas.densidade_proposta_mudas_ha)} mudas/hectare, sendo "
-                    f"exigido no mínimo {self._fmt_br(self.parametros['rfo_densidade_minima_mudas_ha'])} mudas/hectare "
-                    f"pelo TR.")
+                    f"exigido no mínimo {self._fmt_br(dens_min)} mudas/hectare (TR RFO, item 3.9).")
             trechos.append(f"densidade proposta: "
                            f"{self._fmt_br(metricas.densidade_proposta_mudas_ha)} mudas/ha")
-        else:
-            reprovados.append("Densidade de plantio (mudas/hectare) não informada no laudo.")
+
+        # ---- 3) Diversidade: espécies plantadas >= metade das suprimidas --
+        razao = float(self.parametros["rfo_razao_minima_especies"])
+        if metricas.especies_suprimidas and metricas.especies_plantadas is not None:
+            minimo_esp = math.ceil(metricas.especies_suprimidas * razao)
+            if metricas.especies_plantadas < minimo_esp:
+                reprovados.append(
+                    f"Diversidade de espécies insuficiente: propostas {metricas.especies_plantadas} "
+                    f"espécies para {metricas.especies_suprimidas} espécies suprimidas - o TR RFO "
+                    f"(item 3.3) exige no mínimo a metade ({minimo_esp} espécies), nativas do Bioma "
+                    f"Mata Atlântica com distribuição natural na região.")
+            trechos.append(f"espécies: {metricas.especies_plantadas} plantadas / "
+                           f"{metricas.especies_suprimidas} suprimidas")
+
+        # ---- 4) Monitoramento mínimo (2 anos, relatórios anuais) ---------
+        mon_min = int(self.parametros["rfo_monitoramento_minimo_anos"])
+        if metricas.monitoramento_anos is None:
+            reprovados.append(
+                f"Período de monitoramento não comprovado no projeto - o TR RFO (item 3.7) exige "
+                f"monitoramento por no mínimo {mon_min} anos com envio ANUAL de relatórios técnicos.")
+        elif metricas.monitoramento_anos < mon_min:
+            reprovados.append(
+                f"Monitoramento insuficiente: proposto {metricas.monitoramento_anos} ano(s), sendo "
+                f"exigido no mínimo {mon_min} anos (TR RFO, item 3.7).")
+        trechos.append(f"monitoramento: {metricas.monitoramento_anos or 'n/d'} anos "
+                       f"(mínimo {mon_min})")
+
+        # ---- 5) Percentual de falha admitido (<= 10%) ---------------------
+        falha_max = float(self.parametros["rfo_falha_maxima_percentual"])
+        if metricas.percentual_falha_admitido is not None \
+                and metricas.percentual_falha_admitido > falha_max:
+            reprovados.append(
+                f"Percentual de falha admitido ({self._fmt_br(metricas.percentual_falha_admitido)}%) "
+                f"acima do máximo de {self._fmt_br(falha_max)}% estabelecido no TR RFO (item 3.7).")
 
         return ResultadoValidacao(
             documento_analisado=nome_documento,
@@ -496,9 +740,11 @@ class AuditorTecnico:
             else OrigemAnalise.HEURISTICO_LOCAL)
 
     def validar_prad(self, nome_documento: str, texto: str) -> ResultadoValidacao:
-        """TR PRAD: cronograma físico-financeiro detalhado + monitoramento >= 4 anos."""
-        instrucao = ("Verifique se existe cronograma físico-financeiro detalhado e se há "
-                     "previsão expressa de monitoramento por período mínimo de 4 anos.")
+        """TR PRAD (2026): cronograma físico-financeiro (4.2), monitoramento mínimo
+        de 2 anos (5.7) e relatório de execução em 30 dias (5.1)."""
+        instrucao = ("Verifique se existe cronograma físico e financeiro detalhado (item 4.2), "
+                     "o período de monitoramento em anos e se prevê relatório de execução no "
+                     "prazo de 30 dias (item 5.1).")
         try:
             veredito: VereditoPRAD = self.provedor.analisar(VereditoPRAD, instrucao, texto)
         except (ValidationError, NotImplementedError) as exc:
@@ -509,34 +755,34 @@ class AuditorTecnico:
                 itens_reprovados=[f"Falha na análise semântica: {exc}"],
                 origem=OrigemAnalise.HEURISTICO_LOCAL)
 
+        minimo_anos = int(self.parametros["prad_monitoramento_minimo_anos"])
         reprovacao = ""
         if not veredito.cronograma_fisico_financeiro_presente:
-            reprovacao += ("O PRAD não apresenta cronograma físico-financeiro detalhado, "
-                           "conforme exigência do Termo de Referência. ")
-        if not veredito.monitoramento_minimo_4_anos:
-            reprovacao += ("Não comprovado monitoramento por período mínimo de 4 anos, "
-                           "conforme exigência do Termo de Referência do PRAD. ")
-        if veredito.periodo_monitoramento_anos is not None \
-                and veredito.periodo_monitoramento_anos < self.parametros['prad_monitoramento_minimo_anos'] \
-                and not veredito.monitoramento_minimo_4_anos:
-            reprovacao += (f"Período declarado de {veredito.periodo_monitoramento_anos} anos "
-                           f"é inferior ao mínimo de {self.parametros['prad_monitoramento_minimo_anos']} anos. ")
+            reprovacao += ("O PRAD não apresenta cronograma físico e financeiro detalhado, "
+                           "conforme exigência do item 4.2 do Termo de Referência. ")
+        if veredito.periodo_monitoramento_anos is None:
+            reprovacao += ("Período de monitoramento não identificado - o TR PRAD exige "
+                           f"monitoramento por no mínimo {minimo_anos} anos (item 5.7). ")
+        elif veredito.periodo_monitoramento_anos < minimo_anos:
+            reprovacao += (f"Monitoramento proposto de {veredito.periodo_monitoramento_anos} ano(s) "
+                           f"é inferior ao mínimo de {minimo_anos} anos (TR PRAD, item 5.7). ")
         if reprovacao and veredito.justificativa:
             reprovacao += veredito.justificativa
         return self._concluir_llm(nome_documento, "TR PRAD - Áreas Degradadas",
                                   veredito, reprovacao.strip())
 
     def validar_fauna(self, nome_documento: str, texto: str) -> ResultadoValidacao:
-        """TR Fauna: busca ativa + passiva por grupo, amostragem primavera/verão."""
-        instrucao = ("Verifique se a metodologia comprova, por grupo inventariado, o uso de "
-                     "no mínimo um método de busca ativa e um de busca passiva, com "
-                     "amostragens na primavera ou verão.")
+        """TR Laudo de Fauna Silvestre: busca ativa + passiva por grupo, primavera/
+        verão e suficiência amostral pela curva do coletor."""
+        instrucao = ("Verifique se a metodologia comprova, por grupo inventariado, no mínimo um "
+                     "método de busca ativa e um de busca passiva, amostragens em primavera ou "
+                     "verão e a determinação da suficiência amostral pela curva do coletor.")
         try:
             veredito: VereditoFauna = self.provedor.analisar(VereditoFauna, instrucao, texto)
         except (ValidationError, NotImplementedError) as exc:
             logger.exception("Falha na análise de Fauna: %s", exc)
             return ResultadoValidacao(
-                documento_analisado=nome_documento, norma_tr="TR Laudo de Fauna",
+                documento_analisado=nome_documento, norma_tr="TR Laudo de Fauna Silvestre (LFS)",
                 status=StatusValidacao.REVISAO_MANUAL,
                 itens_reprovados=[f"Falha na análise semântica: {exc}"],
                 origem=OrigemAnalise.HEURISTICO_LOCAL)
@@ -544,22 +790,28 @@ class AuditorTecnico:
         reprovacao = ""
         if not veredito.metodos_busca_ativa:
             reprovacao += ("Metodologia não comprova uso de método de BUSCA ATIVA por grupo "
-                           "inventariado, conforme Termo de Referência. ")
+                           "inventariado (TR LFS - Metodologia). ")
         if not veredito.metodos_busca_passiva:
             reprovacao += ("Metodologia não comprova uso de método de BUSCA PASSIVA por grupo "
-                           "inventariado, conforme Termo de Referência. ")
+                           "inventariado (TR LFS - Metodologia). ")
         if not veredito.amostragem_primavera_verao:
-            reprovacao += ("Amostragens em primavera ou verão não comprovadas no laudo. ")
+            reprovacao += ("Amostragens em pelo menos um período de primavera ou verão não "
+                           "comprovadas no laudo (TR LFS). ")
+        if self.parametros.get("fauna_suficiencia_curva_coletor") \
+                and not veredito.suficiencia_amostral_curva_coletor:
+            reprovacao += ("Suficiência amostral não determinada pela estabilização da curva do "
+                           "coletor, conforme exige o TR LFS. ")
         if reprovacao and veredito.justificativa:
             reprovacao += veredito.justificativa
-        return self._concluir_llm(nome_documento, "TR Laudo de Fauna",
+        return self._concluir_llm(nome_documento, "TR Laudo de Fauna Silvestre (LFS)",
                                   veredito, reprovacao.strip())
 
     def validar_pca(self, nome_documento: str, texto: str) -> ResultadoValidacao:
-        """TR PCA: relatórios trimestrais (supressão/solo) e semestrais (obras)."""
-        instrucao = ("Verifique se o cronograma de relatórios estipula periodicidade "
-                     "trimestral para as fases de supressão/movimentação de solo e semestral "
-                     "para a fase de obras.")
+        """TR PCA (2026, item 5.1): relatórios trimestrais na supressão de vegetação,
+        afugentamento de fauna e movimentação de solo; semestrais nas obras."""
+        instrucao = ("Verifique se o cronograma de relatórios estipula periodicidade trimestral "
+                     "para supressão de vegetação, afugentamento de fauna e movimentação de solo, "
+                     "e semestral para as fases de implantação de obras e estruturas.")
         try:
             veredito: VereditoPCA = self.provedor.analisar(VereditoPCA, instrucao, texto)
         except (ValidationError, NotImplementedError) as exc:
@@ -571,18 +823,66 @@ class AuditorTecnico:
                 origem=OrigemAnalise.HEURISTICO_LOCAL)
 
         reprovacao = ""
-        if (veredito.periodicidade_supressao_movimentacao or "").lower() != self.parametros['pca_periodicidade_supressao']:
-            reprovacao += (f"Periodicidade dos relatórios na fase de supressão/movimentação de "
-                           f"solo '{veredito.periodicidade_supressao_movimentacao or 'não informada'}', "
-                           f"sendo exigido '{self.parametros['pca_periodicidade_supressao']}' pelo Termo de Referência. ")
-        if (veredito.periodicidade_obras or "").lower() != self.parametros['pca_periodicidade_obras']:
-            reprovacao += (f"Periodicidade dos relatórios na fase de obras "
-                           f"'{veredito.periodicidade_obras or 'não informada'}', sendo exigido "
-                           f"'{self.parametros['pca_periodicidade_obras']}' pelo Termo de Referência. ")
+        if (veredito.periodicidade_supressao_movimentacao or "").lower() \
+                != str(self.parametros["pca_periodicidade_supressao"]).lower():
+            reprovacao += (f"Periodicidade dos relatórios na fase de supressão de vegetação, "
+                           f"afugentamento de fauna e movimentação de solo "
+                           f"'{veredito.periodicidade_supressao_movimentacao or 'não informada'}', "
+                           f"sendo exigido '{self.parametros['pca_periodicidade_supressao']}' pelo "
+                           f"TR PCA (item 5.1). ")
+        if (veredito.periodicidade_obras or "").lower() \
+                != str(self.parametros["pca_periodicidade_obras"]).lower():
+            reprovacao += (f"Periodicidade dos relatórios na fase de implantação de obras e "
+                           f"estruturas '{veredito.periodicidade_obras or 'não informada'}', sendo "
+                           f"exigido '{self.parametros['pca_periodicidade_obras']}' pelo TR PCA "
+                           f"(item 5.1). ")
         if reprovacao and veredito.justificativa:
             reprovacao += veredito.justificativa
-        return self._concluir_llm(nome_documento, "TR Plano de Controle Ambiental",
+        return self._concluir_llm(nome_documento, "TR Plano de Controle Ambiental (PCA)",
                                   veredito, reprovacao.strip())
+
+    # ==========================================================================
+    # Validação genérica por CHECKLIST DE CONTEÚDO (EIV, LCV e demais TRs)
+    # ==========================================================================
+    def validar_checklist_tr(self, nome_documento: str, norma_tr: str, texto: str,
+                             itens: dict[str, list[str]]) -> ResultadoValidacao:
+        """Verifica a presença dos itens mínimos de conteúdo do TR no documento.
+
+        Cada item possui palavras-chave alternativas; um item é considerado
+        atendido quando qualquer palavra-chave aparece no texto normalizado.
+        """
+        t = ProvedorLLMHeuristico._norm(texto)
+        ausentes: list[str] = []
+        for item, palavras in itens.items():
+            if not any(p in t for p in palavras):
+                ausentes.append(item)
+
+        # trecho de referência: primeira ocorrência reconhecida (contexto)
+        trecho = ""
+        for item, palavras in itens.items():
+            for p in palavras:
+                idx = t.find(p)
+                if idx >= 0:
+                    trecho = re.sub(r"\s+", " ", texto[max(0, idx - 40):idx + 160]).strip()
+                    break
+            if trecho:
+                break
+
+        if not ausentes:
+            status, itens_reprovados = StatusValidacao.CONFORME, []
+        elif len(ausentes) < len(itens):
+            status = StatusValidacao.PENDENTE
+            itens_reprovados = [f"Item obrigatório do {norma_tr} não identificado: {a}."
+                                for a in ausentes]
+        else:
+            status = StatusValidacao.REVISAO_MANUAL
+            itens_reprovados = [f"Nenhum item do conteúdo mínimo do {norma_tr} foi reconhecido "
+                                 f"no documento - conferência manual necessária."]
+        return ResultadoValidacao(
+            documento_analisado=nome_documento, norma_tr=norma_tr,
+            status=status, itens_reprovados=itens_reprovados,
+            trecho_referencia=trecho, metricas={"itens_ausentes": ausentes},
+            origem=OrigemAnalise.HEURISTICO_LOCAL)
 
     # ==========================================================================
     # Roteamento: audita um laudo aplicando os TRs aplicáveis ao seu conteúdo
@@ -596,9 +896,10 @@ class AuditorTecnico:
         t = ProvedorLLMHeuristico._norm(texto)
         trs = []
 
-        # --- Sondagem / Meio Físico (RSCC) ---
-        if ("sondagem" in t or "lencol freatico" in t
-                or ("cota base" in t and "aterro" in t)):
+        # --- Sondagem / Meio Físico (RSCC ou Parcelamento) ---
+        if ("sondagem" in t or "trincheira" in t or "lencol freatico" in t
+                or ("cota base" in t and "aterro" in t)
+                or ("furos" in t and ("ha " in t or "hectare" in t))):
             trs.append("SONDAGEM")
 
         # --- Reposição Florestal Obrigatória ---
@@ -610,18 +911,28 @@ class AuditorTecnico:
 
         # --- PRAD ---
         if ("prad" in t or "plano de recuperacao de area degradada" in t
+                or "projeto de recuperacao de area degradada" in t
                 or ("area degradada" in t and ("cronograma" in t or "monitoramento" in t))):
             trs.append("PRAD")
 
         # --- Fauna ---
         if any(k in t for k in ["fauna", "mastofauna", "avifauna", "herpetofauna",
-                                "ictiofauna", "entomofauna"]):
+                                "ictiofauna", "entomofauna", "lfs"]):
             trs.append("FAUNA")
 
         # --- PCA ---
-        if ("plano de controle ambiental" in t
+        if ("plano de controle ambiental" in t or "pca" in t
                 or ("relatorios" in t and ("periodicidade" in t or "cronograma de relatorios" in t))):
             trs.append("PCA")
+
+        # --- EIV (estudo de impacto de vizinhança) ---
+        if "impacto de vizinhanca" in t or "eiv" in t:
+            trs.append("EIV")
+
+        # --- LCV (laudo de cobertura vegetal) ---
+        if ("laudo de cobertura vegetal" in t or "cobertura vegetal" in t
+                or "inventario florestal" in t or "fitossociolog" in t):
+            trs.append("LCV")
         return trs
 
     def auditar_documento(self, nome_documento: str, texto: str) -> list[ResultadoValidacao]:
@@ -637,11 +948,13 @@ class AuditorTecnico:
                 origem=OrigemAnalise.DETERMINISTICO))
             return resultados
 
+        contexto = self._detectar_contexto_sondagem(texto)
         for tr in self._rotear_trs(texto):
             try:
                 if tr == "SONDAGEM":
                     resultados.append(self.validar_sondagem_aterramento(
-                        nome_documento, self.extrair_parametros_sondagem(texto)))
+                        nome_documento,
+                        self.extrair_parametros_sondagem(texto, contexto=contexto)))
                 elif tr == "RFO":
                     resultados.append(self.validar_rfo(
                         nome_documento, self.extrair_parametros_rfo(texto)))
@@ -651,6 +964,18 @@ class AuditorTecnico:
                     resultados.append(self.validar_fauna(nome_documento, texto))
                 elif tr == "PCA":
                     resultados.append(self.validar_pca(nome_documento, texto))
+                elif tr in ("EIV", "LCV"):
+                    config_tr = (Calibracao().gabarito_trs or {}).get(
+                        "trs_checklist_conteudo", {}).get(tr)
+                    if config_tr and config_tr.get("itens"):
+                        resultados.append(self.validar_checklist_tr(
+                            nome_documento, f"TR {config_tr.get('nome', tr)}",
+                            texto, config_tr["itens"]))
+                    else:
+                        # fallback embutido (sem config oficial carregada)
+                        itens_padrao = self._checklists_padrao().get(tr, {})
+                        resultados.append(self.validar_checklist_tr(
+                            nome_documento, f"TR {tr}", texto, itens_padrao))
             except Exception as exc:  # noqa: BLE001 - um TR não deve derrubar os demais
                 logger.exception("Falha ao aplicar TR %s em %s", tr, nome_documento)
                 resultados.append(ResultadoValidacao(
@@ -666,6 +991,32 @@ class AuditorTecnico:
                                   "documento - triagem manual."],
                 origem=OrigemAnalise.DETERMINISTICO))
         return resultados
+
+    @staticmethod
+    def _checklists_padrao() -> dict[str, dict[str, list[str]]]:
+        """Checklists mínimos embutidos (espelham config/gabarito_trs.json)."""
+        return {
+            "EIV": {
+                "Identificação do empreendimento (razão social, CNPJ, logradouro, bairro)":
+                    ["razao social", "cnpj", "logradouro", "bairro"],
+                "Caracterização geral e descrição do empreendimento":
+                    ["descricao do empreendimento", "caracterizacao geral", "justificativa do empreendimento"],
+                "Geração de tráfego, carga e descarga": ["trafego", "carga e descarga"],
+                "Geração de ruídos e vibrações": ["ruidos", "vibracoes", "decibeis"],
+                "Medidas de controle/mitigação dos impactos":
+                    ["medidas para controle", "medidas mitigadoras", "medidas de controle"],
+                "ART dos responsáveis": ["art", "anotacao de responsabilidade tecnica"],
+            },
+            "LCV": {
+                "Área de estudo com georreferenciamento": ["georreferenciamento", "imagem de satelite"],
+                "Método de inventário florestal": ["inventario", "esforco amostral"],
+                "Inventário fitossociológico": ["fitossociolog", "indice de valor de importancia"],
+                "Estágio sucessional": ["estagio sucessional"],
+                "APPs": ["app", "area de preservacao permanente"],
+                "Relatório fotográfico": ["relatorio fotografico", "fotograf"],
+                "Parecer técnico conclusivo": ["parecer tecnico conclusivo"],
+            },
+        }
 
     def auditar_lote(self, laudos: dict[str, str]) -> list[ResultadoValidacao]:
         """Audita um conjunto de laudos {nome_arquivo: texto_extraido}."""

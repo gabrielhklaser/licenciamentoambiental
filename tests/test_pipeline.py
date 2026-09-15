@@ -145,22 +145,53 @@ def test_financeiro_excecao_faixas_hectares():
 # ==============================================================================
 # FASE 3 - Auditor Técnico
 # ==============================================================================
-def test_furos_sondagem_regra_da_area():
+def test_pontos_sondagem_regra_da_area():
+    """TRs oficiais: RSCC = 3 pontos até 1 ha; Parcelamento = 4 furos até 1 ha."""
     at = AuditorTecnico()
-    assert at.calcular_furos_exigidos(0.8) == 4   # até 1 ha
-    assert at.calcular_furos_exigidos(1.0) == 4
-    assert at.calcular_furos_exigidos(1.1) == 5   # +1 por hectare excedente
-    assert at.calcular_furos_exigidos(3.5) == 7
+    # Aterro RSCC (TR 2026): 3 pontos até 1,0 ha + 1 por hectare ou fração
+    assert at.calcular_pontos_sondagem_exigidos(0.8, "RSCC") == 3
+    assert at.calcular_pontos_sondagem_exigidos(1.0, "RSCC") == 3
+    assert at.calcular_pontos_sondagem_exigidos(1.1, "RSCC") == 4
+    assert at.calcular_pontos_sondagem_exigidos(3.5, "RSCC") == 6
+    # Meio Físico/Parcelamento (TR 2025): 4 furos até 1 ha + 1 por ha ou fração
+    assert at.calcular_pontos_sondagem_exigidos(0.8, "PARCELAMENTO") == 4
+    assert at.calcular_pontos_sondagem_exigidos(3.5, "PARCELAMENTO") == 7
+    assert at.calcular_ensaios_permeabilidade_exigidos(1.0, "RSCC") == 2
+    assert at.calcular_ensaios_permeabilidade_exigidos(1.0, "PARCELAMENTO") == 3
 
 
-def test_sondagem_reprova_distancia_inferior_1m50():
+def test_sondagem_rscc_distancia_e_impermeabilizacao():
+    """TR Aterro RSCC: d entre 1,0 e 1,5 m -> abaixo do mínimo + impermeabilização."""
     at = AuditorTecnico()
-    metricas = MetricasSondagem(profundidade_lencol_m=2.00, cota_base_aterro_m=1.00,
-                                area_ha=1.0, furos_informados=4)
+    metricas = MetricasSondagem(contexto="RSCC", profundidade_lencol_m=2.00,
+                                cota_base_aterro_m=1.00, area_ha=1.0,
+                                furos_informados=3, ensaios_permeabilidade_informados=2)
     r = at.validar_sondagem_aterramento("laudo.pdf", metricas)
     assert r.status.value == "PENDENTE"
     assert any("1,5" in item for item in r.itens_reprovados)
+    assert any("IMPERMEABILIZAÇÃO" in item for item in r.itens_reprovados)
     assert r.metricas["distancia_vertical_m"] == pytest.approx(1.0)
+
+
+def test_sondagem_rscc_distancia_vedada():
+    """TR Aterro RSCC: d < 1,0 m é terminantemente proibido."""
+    at = AuditorTecnico()
+    metricas = MetricasSondagem(contexto="RSCC", profundidade_lencol_m=1.20,
+                                cota_base_aterro_m=0.50, area_ha=1.0,
+                                furos_informados=3, ensaios_permeabilidade_informados=2)
+    r = at.validar_sondagem_aterramento("laudo.pdf", metricas)
+    assert r.status.value == "PENDENTE"
+    assert any("PROIBIDA" in item or "IMPOSSIBILIDADE" in item for item in r.itens_reprovados)
+
+
+def test_sondagem_rscc_conforme():
+    """d >= 2,0 m, sondagens e ensaios suficientes -> CONFORME."""
+    at = AuditorTecnico()
+    metricas = MetricasSondagem(contexto="RSCC", profundidade_lencol_m=3.50,
+                                cota_base_aterro_m=0.50, area_ha=1.0,
+                                furos_informados=3, ensaios_permeabilidade_informados=2)
+    r = at.validar_sondagem_aterramento("laudo.pdf", metricas)
+    assert r.status.value == "CONFORME"
 
 
 def test_rfo_densidade_2000_gera_pendente():
@@ -178,9 +209,69 @@ def test_rfo_densidade_2000_gera_pendente():
 def test_rfo_conforme():
     at = AuditorTecnico()
     metricas = MetricasRFO(nativos_suprimidos=10, exoticos_suprimidos=0,
-                           mudas_nativas_propostas=150, densidade_proposta_mudas_ha=3100.0)
+                           mudas_nativas_propostas=150, densidade_proposta_mudas_ha=3100.0,
+                           monitoramento_anos=2)
     r = at.validar_rfo("laudo.pdf", metricas)
     assert r.status.value == "CONFORME"
+
+
+def test_rfo_monitoramento_e_especies():
+    """TR RFO: monitoramento >= 2 anos e espécies >= metade das suprimidas."""
+    at = AuditorTecnico()
+    metricas = MetricasRFO(nativos_suprimidos=10, exoticos_suprimidos=0,
+                           mudas_nativas_propostas=150, densidade_proposta_mudas_ha=3100.0,
+                           monitoramento_anos=1, especies_suprimidas=8, especies_plantadas=3)
+    r = at.validar_rfo("laudo.pdf", metricas)
+    assert r.status.value == "PENDENTE"
+    assert any("monitoramento" in i.lower() and "2 anos" in i for i in r.itens_reprovados)
+    assert any("espécies" in i.lower() for i in r.itens_reprovados)
+
+
+def test_rfo_laudo_que_cita_minimo_normativo():
+    """Laudo que transcreve o TR ('densidade mínima de 3.000 mudas/ha') não deve
+    ter o mínimo confundido com a proposta (regressão)."""
+    at = AuditorTecnico()
+    texto = ("Medidas de reposição florestal devem considerar o plantio de 15 mudas com mais de "
+             "um metro de altura por indivíduo nativo e 3 mudas com mais de um metro de altura por "
+             "indivíduo exótico suprimido, conforme RESOLUÇÃO COMDEMA nº 02/2017. Os plantios devem "
+             "ser feitos com uma densidade mínima de 3.000 mudas/hectare. "
+             "Projeto com 120 indivíduos nativos e 30 exóticos suprimidos, plantio de 1.900 mudas "
+             "nativas, densidade de 2.000 mudas/hectare, monitoramento por 2 anos.")
+    metricas = at.extrair_parametros_rfo(texto)
+    assert metricas.densidade_proposta_mudas_ha == pytest.approx(2000.0)  # não 3.000!
+    r = at.validar_rfo("laudo_cita_tr.pdf", metricas)
+    assert r.status.value == "PENDENTE"
+    assert any("2.000" in i and "3.000" in i for i in r.itens_reprovados)
+
+
+def test_gabarito_oficial_carregado():
+    """config/gabarito_trs.json (TRs oficiais) é aplicado automaticamente."""
+    at = AuditorTecnico()
+    assert at.gabarito_revisado is True
+    assert "campobom.rs.gov.br" in at.fonte_gabarito
+    assert at.parametros["rscc_sondagem_base"] == 3            # TR Aterro RSCC 2026
+    assert at.parametros["parcelamento_sondagem_base"] == 4    # TR Meio Físico 2025
+    assert at.parametros["prad_monitoramento_minimo_anos"] == 2  # TR PRAD 5.7
+    assert at.parametros["rfo_razao_minima_especies"] == 0.5   # TR RFO 3.3
+    assert at.parametros["rscc_distancia_vedada_m"] == 1.0     # TR Aterro RSCC 2.4
+
+
+def test_checklist_conteudo_eiv():
+    """TR EIV: validação por checklist de conteúdo mínimo."""
+    at = AuditorTecnico()
+    texto_completo = ("ESTUDO DE IMPACTO DE VIZINHANÇA. Razão social: Empresa X - CNPJ 12.345/0001-90. "
+                      "Logradouro: Rua A, Bairro Centro. Descrição do empreendimento: comércio. "
+                      "Geração de tráfego e carga e descarga: ... Ruídos e vibrações: 60 decibéis. "
+                      "Medidas de controle e medidas mitigadoras: ... ART anexada.")
+    r_ok = at.validar_checklist_tr("eiv.pdf", "TR EIV", texto_completo,
+                                   AuditorTecnico._checklists_padrao()["EIV"])
+    assert r_ok.status.value == "CONFORME"
+
+    texto_parcial = "Estudo de Impacto de Vizinhança. Razão social: Empresa X. CNPJ 12.345."
+    r_parc = at.validar_checklist_tr("eiv2.pdf", "TR EIV", texto_parcial,
+                                     AuditorTecnico._checklists_padrao()["EIV"])
+    assert r_parc.status.value == "PENDENTE"
+    assert r_parc.itens_reprovados  # lista os itens ausentes
 
 
 def test_laudo_rfo_pdf_do_exemplo():

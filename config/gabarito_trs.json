@@ -1,0 +1,205 @@
+{
+  "fonte": "Termos de Referência oficiais da SEMA Campo Bom - publicados em campobom.rs.gov.br (Downloads e Utilidades > Secretaria de Meio Ambiente > Documentos de Licenciamento)",
+  "fonte_urls": {
+    "TR_ATERRA_RSCC": "https://www.campobom.rs.gov.br/wp-content/uploads/2026/09/TR-ATERRO_RSCC.pdf",
+    "TR_MEIO_FISICO": "https://www.campobom.rs.gov.br/wp-content/uploads/2026/04/31-TR-MEIO-FISICO.docx",
+    "TR_RFO": "https://www.campobom.rs.gov.br/wp-content/uploads/2026/04/2-TR-RFO.docx",
+    "TR_PRAD": "https://www.campobom.rs.gov.br/wp-content/uploads/2026/04/20-TR-PRAD.docx",
+    "TR_PCA": "https://www.campobom.rs.gov.br/wp-content/uploads/2026/04/1-TR-PCA.docx",
+    "TR_LF_FAUNA": "https://www.campobom.rs.gov.br/wp-content/uploads/2026/04/10-TR-LFauna.docx",
+    "TR_LCV": "https://www.campobom.rs.gov.br/wp-content/uploads/2026/04/8-TR-LCV.docx",
+    "TR_EIV": "https://www.campobom.rs.gov.br/wp-content/uploads/2026/04/19-TR-EIV.docx",
+    "TR_EIV_SIMPLIFICADO": "https://www.campobom.rs.gov.br/wp-content/uploads/PDFs/MEIO-AMBIENTE/DOCUMENTOS-DE-LICENCIAMENTO/TR-do-EIV-simplificado-2023.pdf",
+    "TR_ARBORIZACAO_PASSEIO": "https://www.campobom.rs.gov.br/wp-content/uploads/2026/04/30-TR-PLANO-DE-ARBORIZACAO-DO-PASSEIO-PUBLICO.docx",
+    "TR_SUPERVISAO_EA": "https://www.campobom.rs.gov.br/wp-content/uploads/2026/04/9-TR-SUPERVISAO-E-EDUCACAO-AMBIENTAL.docx"
+  },
+  "revisado": true,
+  "revisado_em": "2026-09-15",
+  "nota_revisao": "Valores extraídos LITERALMENTE dos TRs oficiais publicados pela Prefeitura e conferidos item a item. DIVERGÊNCIA registrada: o TR PRAD oficial fixa monitoramento mínimo de 2 anos (item 5.7); a especificação original do sistema previa 4 anos - ajuste o parâmetro 'prad_monitoramento_minimo_anos' se a exigência interna for maior.",
+  "parametros": {
+    "rscc_distancia_minima_lencol_m": {
+      "valor": 1.5,
+      "trecho": "Distância mínima do lençol freático: A base inferior da camada de aterro deve guardar distância vertical mínima de 1,50 metro acima do nível máximo do lençol freático segundo a NBR 15113",
+      "descricao": "TR Aterro RSCC 2026, item 2.4"
+    },
+    "rscc_distancia_vedada_m": {
+      "valor": 1.0,
+      "trecho": "Vedação Absoluta: É terminantemente proibida a implantação de aterro de RSCC cuja base inferior se localize a distância inferior a 1,0 metro do lençol freático",
+      "descricao": "TR Aterro RSCC 2026, item 2.4"
+    },
+    "rscc_impermeabilizacao_min_m": {
+      "valor": 1.0,
+      "trecho": "Caso a distância vertical entre o fundo da base do aterro e o nível freático esteja entre 1,0 e 2,0 metros, será obrigatória a impermeabilização da base com camada de argila compactada de no mínimo 20 cm de espessura e coeficiente de permeabilidade (k) entre 10⁻⁶ e 10⁻⁷ cm/s",
+      "descricao": "TR Aterro RSCC 2026, item 2.4 - faixa inferior"
+    },
+    "rscc_impermeabilizacao_max_m": {
+      "valor": 2.0,
+      "trecho": "Caso a distância vertical entre o fundo da base do aterro e o nível freático esteja entre 1,0 e 2,0 metros, será obrigatória a impermeabilização da base com camada de argila compactada de no mínimo 20 cm de espessura e coeficiente de permeabilidade (k) entre 10⁻⁶ e 10⁻⁷ cm/s",
+      "descricao": "TR Aterro RSCC 2026, item 2.4 - faixa superior"
+    },
+    "rscc_sondagem_base": {
+      "valor": 3,
+      "trecho": "Mínimo de 3 (três) pontos de sondagem/trincheiras para áreas úteis até 1,0 hectare",
+      "descricao": "TR Aterro RSCC 2026, item 2.3"
+    },
+    "rscc_sondagem_por_ha_excedente": {
+      "valor": 1,
+      "trecho": "Acréscimo de 1 (um) ponto adicional para cada hectare ou fração excedente",
+      "descricao": "TR Aterro RSCC 2026, item 2.3"
+    },
+    "rscc_profundidade_investigacao_m": {
+      "valor": 3.0,
+      "trecho": "Profundidade de Investigação: Mínimo de 3,0 metros de profundidade (ou até o nível freático ou impenetrável ao martelo/trado)",
+      "descricao": "TR Aterro RSCC 2026, item 2.3"
+    },
+    "rscc_ensaios_permeabilidade_base": {
+      "valor": 2,
+      "trecho": "Ensaios de Permeabilidade In Situ (NBR 7229/93 ou NBR 13969/97): Mínimo de 2 (dois) ensaios para áreas até 1,0 ha (+1 ensaio por ha adicional) na cota prevista para a base do aterro",
+      "descricao": "TR Aterro RSCC 2026, item 2.4"
+    },
+    "rscc_ensaios_por_ha_excedente": {
+      "valor": 1,
+      "trecho": "(+1 ensaio por ha adicional)",
+      "descricao": "TR Aterro RSCC 2026, item 2.4"
+    },
+    "parcelamento_sondagem_base": {
+      "valor": 4,
+      "trecho": "Mínimo de quatro (4) furos de até 3 metros de profundidade (ou quando atingir o nível freático ou o embasamento rochoso) para áreas com até 1 ha de projeto, acrescentando-se um novo furo para cada 1 ha ou fração que ultrapasse 1 ha",
+      "descricao": "TR Meio Físico - Laudo Geológico/Hidrológico (parcelamento), item 2.1.5.2"
+    },
+    "parcelamento_sondagem_por_ha_excedente": {
+      "valor": 1,
+      "trecho": "acrescentando-se um novo furo para cada 1 ha ou fração que ultrapasse 1 ha",
+      "descricao": "TR Meio Físico, item 2.1.5.2"
+    },
+    "parcelamento_profundidade_investigacao_m": {
+      "valor": 3.0,
+      "trecho": "Furos de sondagem ou outra forma de investigação direta até 3 m de profundidade (ou até atingir a rocha subjacente)",
+      "descricao": "TR Meio Físico, item 2.1.5.1"
+    },
+    "parcelamento_ensaios_permeabilidade_base": {
+      "valor": 3,
+      "trecho": "Mínimo de 3 ensaios, a partir da profundidade pretendida de instalação da fossa asséptica (quando houver), para áreas até 1 ha, acrescentando-se um novo ensaio para cada 1 ha ou fração que ultrapasse 1 ha",
+      "descricao": "TR Meio Físico, item 2.1.6.2"
+    },
+    "parcelamento_ensaios_por_ha_excedente": {
+      "valor": 1,
+      "trecho": "acrescentando-se um novo ensaio para cada 1 ha ou fração que ultrapasse 1 ha",
+      "descricao": "TR Meio Físico, item 2.1.6.2"
+    },
+    "rfo_mudas_por_nativo": {
+      "valor": 15,
+      "trecho": "Medidas de reposição florestal devem considerar o plantio de 15 mudas com mais de um metro de altura por indivíduo nativo e 3 mudas com mais de um metro de altura por indivíduo exótico suprimido, conforme RESOLUÇÃO COMDEMA nº 02/2017",
+      "descricao": "TR RFO 2026, item 3.9"
+    },
+    "rfo_mudas_por_exotico": {
+      "valor": 3,
+      "trecho": "Medidas de reposição florestal devem considerar o plantio de 15 mudas com mais de um metro de altura por indivíduo nativo e 3 mudas com mais de um metro de altura por indivíduo exótico suprimido, conforme RESOLUÇÃO COMDEMA nº 02/2017",
+      "descricao": "TR RFO 2026, item 3.9"
+    },
+    "rfo_densidade_minima_mudas_ha": {
+      "valor": 3000,
+      "trecho": "Os plantios devem ser feitos com uma densidade mínima de 3.000 mudas/hectare, deverão ser monitorados e contar com reposição de mudas que não apresentem sucesso de pega",
+      "descricao": "TR RFO 2026, item 3.9"
+    },
+    "rfo_razao_minima_especies": {
+      "valor": 0.5,
+      "trecho": "O número de espécies das mudas a serem utilizadas na compensação deve ser de, no mínimo, a metade do número de espécies a serem suprimidas",
+      "descricao": "TR RFO 2026, item 3.3"
+    },
+    "rfo_monitoramento_minimo_anos": {
+      "valor": 2,
+      "trecho": "Cronograma de implantação do projeto prevendo envio anual de relatórios técnicos de monitoramento por um período de no mínimo de 2 (dois) anos",
+      "descricao": "TR RFO 2026, item 3.7"
+    },
+    "rfo_falha_maxima_percentual": {
+      "valor": 10,
+      "trecho": "admitindo-se ao final do período de monitoramento um percentual de 10% de falha",
+      "descricao": "TR RFO 2026, item 3.7"
+    },
+    "rfo_art_previsao_minima_anos": {
+      "valor": 2,
+      "trecho": "Anotação de Responsabilidade Técnica (ART) de laudo, projeto e execução, com previsão mínima de 2 anos",
+      "descricao": "TR RFO 2026, item 2.4"
+    },
+    "prad_monitoramento_minimo_anos": {
+      "valor": 2,
+      "trecho": "A comprovação de que as intervenções se estabeleceram e a área tem condições de se desenvolver sem manejo poderá justificar a redução no intervalo e duração dos relatórios de acompanhamento (após o monitoramento mínimo de dois anos)",
+      "descricao": "TR PRAD 2026, item 5.7 - DIVERGE dos 4 anos da especificação original do sistema"
+    },
+    "prad_relatorio_execucao_dias": {
+      "valor": 30,
+      "trecho": "O Relatório de Execução deve ser apresentado 30 dias após a emissão da aprovação do PRAD ou de acordo com o prazo estabelecido na declaração de aprovação",
+      "descricao": "TR PRAD 2026, item 5.1"
+    },
+    "prad_primeiro_monitoramento_meses": {
+      "valor": 6,
+      "trecho": "O monitoramento inicia somente após a aprovação da execução do PRAD, devendo, o primeiro relatório ser apresentado em seis meses após esta aprovação",
+      "descricao": "TR PRAD 2026, item 5.1"
+    },
+    "pca_periodicidade_supressao": {
+      "valor": "trimestral",
+      "trecho": "Nas fases iniciais de implantação, correspondentes a supressão de vegetação, afugentamento de fauna e movimentações de solo, a periodicidade dos relatórios deve ser trimestral",
+      "descricao": "TR PCA 2026, item 5.1"
+    },
+    "pca_periodicidade_obras": {
+      "valor": "semestral",
+      "trecho": "Nas fases de implantação de obras e estruturas, a periodicidade dos relatórios deve ser semestral",
+      "descricao": "TR PCA 2026, item 5.1"
+    },
+    "fauna_min_busca_ativa_por_grupo": {
+      "valor": 1,
+      "trecho": "deverá conter no mínimo um método de busca passiva e um método de busca ativa por grupo inventariado",
+      "descricao": "TR Laudo de Fauna Silvestre (LFS), item Metodologia"
+    },
+    "fauna_min_busca_passiva_por_grupo": {
+      "valor": 1,
+      "trecho": "deverá conter no mínimo um método de busca passiva e um método de busca ativa por grupo inventariado",
+      "descricao": "TR Laudo de Fauna Silvestre (LFS), item Metodologia"
+    },
+    "fauna_suficiencia_curva_coletor": {
+      "valor": true,
+      "trecho": "Determinação da suficiência amostral, baseada na estabilização da curva do coletor",
+      "descricao": "TR Laudo de Fauna Silvestre (LFS), item Metodologia"
+    },
+    "fauna_app_entorno_m": {
+      "valor": 100,
+      "trecho": "Determinação das Áreas de Preservação Permanente (APP) na área de estudo e na distância de 100 metros de todo o seu limite",
+      "descricao": "TR Laudo de Fauna Silvestre (LFS)"
+    },
+    "fauna_uc_raio_km": {
+      "valor": 10,
+      "trecho": "informar se o empreendimento está localizado dentro ou num raio de 10 km unidade de conservação ou área de interesse ambiental legalmente protegida",
+      "descricao": "TR Laudo de Fauna Silvestre (LFS)"
+    }
+  },
+  "trs_checklist_conteudo": {
+    "EIV": {
+      "nome": "TR Estudo de Impacto de Vizinhança (simplificado)",
+      "itens": {
+        "Identificação do empreendimento (razão social, CNPJ, logradouro, bairro, contato)": ["razao social", "cnpj", "logradouro", "bairro"],
+        "Caracterização geral e descrição do empreendimento": ["descricao do empreendimento", "caracterizacao geral", "justificativa do empreendimento"],
+        "Indicadores de porte/CODRAM": ["porte", "codram"],
+        "Geração de tráfego, carga e descarga": ["trafego", "carga e descarga"],
+        "Geração de ruídos e vibrações (decibéis)": ["ruidos", "vibracoes", "decibeis"],
+        "Identificação e caracterização de riscos": ["riscos"],
+        "Medidas de controle/mitigação dos impactos": ["medidas para controle", "medidas mitigadoras", "medidas de controle"],
+        "ART dos responsáveis": ["art", "anotacao de responsabilidade tecnica"]
+      }
+    },
+    "LCV": {
+      "nome": "TR Laudo de Cobertura Vegetal e Manejo da Flora",
+      "itens": {
+        "Área de estudo com georreferenciamento e imagem de satélite": ["georreferenciamento", "imagem de satelite"],
+        "Descrição do método de inventário florestal (esforço amostral, dados, equipe)": ["inventario", "esforco amostral", "metodo"],
+        "Inventário fitossociológico com parâmetros (IVI, densidade, cubagem)": ["fitossociolog", "indice de valor de importancia", "densidade"],
+        "Estágio sucessional da formação florestal": ["estagio sucessional"],
+        "Espécies raras, endêmicas, ameaçadas e imunes ao corte georreferenciadas": ["ameacadas", "imunes ao corte", "raras"],
+        "APPs na área e a 100 m do limite": ["app", "area de preservacao permanente"],
+        "Croqui/Mapa de Caracterização Ambiental com quadro de áreas": ["croqui", "mapa de caracterizacao"],
+        "Relatório fotográfico": ["relatorio fotografico", "fotograf"],
+        "Parecer técnico conclusivo da flora": ["parecer tecnico conclusivo"]
+      }
+    }
+  }
+}

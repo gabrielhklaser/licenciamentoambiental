@@ -41,6 +41,21 @@ sys.path.insert(0, str(RAIZ))
 
 from pypdf import PdfReader  # noqa: E402
 
+
+def extrair_texto_docx(caminho: Path) -> list[str]:
+    """Extrai texto de .docx (parágrafos + tabelas) como 'páginas' de texto."""
+    from docx import Document  # python-docx
+    doc = Document(str(caminho))
+    linhas = [par.text for par in doc.paragraphs if par.text and par.text.strip()]
+    for tabela in doc.tables:
+        for linha in tabela.rows:
+            celulas = [c.text.strip() for c in linha.cells if c.text and c.text.strip()]
+            if celulas:
+                linhas.append(" | ".join(celulas))
+    # heurística: quebra em 'páginas' de ~40 linhas para manter o formato do pipeline
+    paginas = ["\n".join(linhas[i:i + 40]) for i in range(0, len(linhas), 40)]
+    return paginas or [""]
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 logger = logging.getLogger("ingestar")
 
@@ -303,10 +318,10 @@ def extrair_gabarito_trs(paginas: list[str], fonte: str) -> dict:
                           r"|m[íi]nim[oa][^.]{0,200}?len[çc]ol[^.]{0,120}?)"
                           r"([\d]+[.,]?\d*)\s*m(?:etros)?\b", re.I),
               descricao="Distância vertical mínima lençol x base do aterro (m)")
-    registrar("rscc_furos_base",
+    registrar("rscc_sondagem_base",
               re.compile(r"m[íi]nim[oa]\s*(?:de\s*)?(\d+)\s*furos", re.I),
               cast=int, descricao="Nº mínimo de furos de sondagem (base)")
-    registrar("rscc_furos_por_ha_excedente",
+    registrar("rscc_sondagem_por_ha_excedente",
               re.compile(r"(\d+)\s*furo(?:s)?\s*(?:adicional|a mais|extra)[^.]{0,80}?hectare", re.I),
               cast=int, descricao="Furos adicionais por hectare excedente")
     # RFO: extração por PROXIMIDADE dentro da sentença de supressão - pega o
@@ -486,7 +501,14 @@ def _caminho_rel(caminho: Path) -> str:
         return str(caminho)
 
 def processar_pdf(caminho: Path, pasta_config: Path, pasta_textos: Path) -> dict:
-    paginas = extrair_paginas(caminho)
+    if caminho.suffix.lower() == ".docx":
+        paginas = extrair_texto_docx(caminho)
+    elif caminho.suffix.lower() == ".doc":
+        resultado = {"arquivo": caminho.name,
+                     "status": "formato .doc legado - converter para .docx/.pdf (LibreOffice) ou usar a versão atual no site da Prefeitura"}
+        return resultado
+    else:
+        paginas = extrair_paginas(caminho)
     total_chars = sum(len(p) for p in paginas)
     resultado = {"arquivo": caminho.name, "paginas": len(paginas), "caracteres": total_chars}
 
@@ -564,7 +586,8 @@ def main() -> None:
 
     caminhos = [Path(p) for p in args.pdfs]
     if args.pasta:
-        caminhos.extend(sorted(Path(args.pasta).glob("*.pdf")))
+        for padrao in ("*.pdf", "*.docx", "*.doc"):
+            caminhos.extend(sorted(Path(args.pasta).glob(padrao)))
     if not caminhos:
         parser.print_help()
         sys.exit(1)

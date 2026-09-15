@@ -138,13 +138,23 @@ Princípios da calibração:
 
 ## ⚙️ Fase 3 — Auditor Técnico
 
-| Validação | Tipo | Regra |
+**Gabarito calibrado com os TERMOS DE REFERÊNCIA OFICIAIS da SEMA Campo Bom**
+(publicados em `campobom.rs.gov.br` — ver `documentos_oficiais/trs/FONTES.md` e os
+trechos literais em `config/gabarito_trs.json`):
+
+| Validação | TR oficial | Regra vigente |
 |---|---|---|
-| Meio Físico / RSCC | Determinística | Distância vertical lençol × base do aterro **≥ 1,5 m**; furos de sondagem: **4 até 1 ha + 1/ha excedente** |
-| RFO | Determinística | **15 mudas nativas** (>1 m) por nativo suprimido, **3 por exótico**; densidade **≥ 3.000 mudas/ha** |
-| PRAD | Semântica (LLM) | Cronograma físico-financeiro detalhado + monitoramento **≥ 4 anos** |
-| Laudo de Fauna | Semântica (LLM) | ≥ 1 método de **busca ativa** e 1 de **busca passiva** por grupo; amostragens em **primavera/verão** |
-| PCA | Semântica (LLM) | Relatórios **trimestrais** (supressão/movimentação de solo) e **semestrais** (obras) |
+| Meio Físico — **Aterro RSCC** | TR Aterro RSCC Classe A (2026) | Sondagem: **3 pontos** até 1,0 ha + 1 por hectare **ou fração** excedente; profundidade ≥ 3,0 m; base do aterro **≥ 1,50 m** acima do nível **máximo** do lençol (NBR 15113); **VEDADO < 1,0 m**; **impermeabilização obrigatória** na faixa 1,0–2,0 m (argila ≥ 20 cm, k 10⁻⁶–10⁻⁷); ensaios de permeabilidade: **2 + 1/ha** |
+| Meio Físico — **Parcelamento** | TR Laudo Geológico/Hidrológico (2025) | Sondagem: **4 furos** até 1 ha + 1 por hectare ou fração; ensaios: **3 + 1/ha**; profundidade ≥ 3,0 m (o auditor detecta o contexto do laudo e aplica o gabarito certo) |
+| **RFO** | TR RFO + COMDEMA 02/2017 | **15 mudas** (>1 m) por nativo e **3** por exótico suprimido; densidade **≥ 3.000 mudas/ha**; espécies plantadas **≥ metade** das suprimidas; monitoramento **≥ 2 anos** (relatórios anuais); falha **≤ 10%**; ART ≥ 2 anos |
+| **PRAD** | TR PRAD (2026) | Cronograma **físico e financeiro** detalhado (4.2); relatório de execução em **30 dias** e 1º monitoramento em **6 meses** (5.1); monitoramento mínimo **2 anos** (5.7)* |
+| **Fauna (LFS)** | TR Laudo de Fauna Silvestre | ≥ 1 método de **busca ativa** e 1 de **busca passiva** por grupo; amostragem em **primavera/verão**; suficiência amostral pela **curva do coletor** |
+| **PCA** | TR PCA (2026, 5.1) | Relatórios **trimestrais** (supressão de vegetação, afugentamento de fauna e movimentação de solo) e **semestrais** (obras e estruturas) |
+| **EIV / LCV** | TRs de conteúdo | Checklist de itens mínimos do TR (identificação, tráfego, ruídos, medidas, ART / inventário, estágio sucessional, APPs, parecer conclusivo…) |
+
+\* **Divergência documentada:** a especificação original pedia 4 anos de monitoramento no PRAD;
+o TR oficial vigente (5.7) fixa 2 anos — o gabarito segue o oficial, ajustável em
+`config/gabarito_trs.json` sem tocar em código.
 
 - Saída padronizada (`ResultadoValidacao`): `documento_analisado`, `status`
   (CONFORME/PENDENTE/REVISAO_MANUAL), `itens_reprovados` (justificativa do TR),

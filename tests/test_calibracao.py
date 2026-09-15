@@ -65,7 +65,7 @@ def test_auditor_tecnico_usa_gabarito_calibrado(pasta_tmp):
         "fonte": "TRs oficiais (teste)", "revisado": True,
         "parametros": {
             "rfo_densidade_minima_mudas_ha": 2500.0,
-            "rscc_furos_base": 6,
+            "rscc_sondagem_base": 6,
         },
     }
     caminho = pasta_tmp / "gabarito_trs.json"
@@ -73,15 +73,15 @@ def test_auditor_tecnico_usa_gabarito_calibrado(pasta_tmp):
 
     at = AuditorTecnico(caminho_gabarito=str(caminho))
     assert at.parametros["rfo_densidade_minima_mudas_ha"] == 2500.0
-    assert at.calcular_furos_exigidos(1.0) == 6
-
-    # densidade 2000 < 2500 continua reprovando; mensagem cita o valor calibrado
+    assert at.calcular_pontos_sondagem_exigidos(1.0, "RSCC") == 6
+    # mensagem cita o valor calibrado (2.500 em vez de 3.000)
     r = at.validar_rfo("laudo.pdf", MetricasRFO(
         nativos_suprimidos=10, exoticos_suprimidos=0,
-        mudas_nativas_propostas=150, densidade_proposta_mudas_ha=2000.0))
-    assert r.status.value == "PENDENTE"
-    assert "2.500" in r.itens_reprovados[0]
+        mudas_nativas_propostas=150, densidade_proposta_mudas_ha=2000.0,
+        monitoramento_anos=2))
+    assert any("2.500" in i for i in r.itens_reprovados)
 
+    # densidade 2000 < 2500 continua reprovando (sem monitoramento informado também pende)
 
 def test_parser_usa_checklist_oficial_como_fallback(pasta_tmp):
     """Sem checklist no HTML, o parser usa o checklist oficial calibrado."""
@@ -145,8 +145,8 @@ def test_extrator_gabarito_trs_sintetico():
     draft = extrair_gabarito_trs(paginas, "teste.pdf")
     p = {k: v["valor"] for k, v in draft["parametros"].items()}
     assert p["rscc_distancia_minima_lencol_m"] == pytest.approx(1.5)
-    assert p["rscc_furos_base"] == 4
-    assert p["rscc_furos_por_ha_excedente"] == 1
+    assert p["rscc_sondagem_base"] == 4
+    assert p["rscc_sondagem_por_ha_excedente"] == 1
     assert p["rfo_mudas_por_nativo"] == 15
     assert p["rfo_mudas_por_exotico"] == 3
     assert p["rfo_densidade_minima_mudas_ha"] == pytest.approx(3000.0)
@@ -214,4 +214,4 @@ def test_fluxo_ingestao_e_promocao(pasta_tmp):
 
     at = AuditorTecnico(caminho_gabarito=str(final))
     assert at.gabarito_revisado is True
-    assert at.calcular_furos_exigidos(0.5) == 4
+    assert at.calcular_pontos_sondagem_exigidos(0.5, "RSCC") == 4
