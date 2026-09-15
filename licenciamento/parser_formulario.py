@@ -171,6 +171,8 @@ class FormularioParser:
         ("LP", re.compile(r"LICENCA[S]? PREVIA|\(\s*LP\s*\)|\bLP\b")),
         ("LI", re.compile(r"LICENCA[S]? DE INSTALACAO|\(\s*LI\s*\)|\bLI\b")),
         ("LO", re.compile(r"LICENCA[S]? DE OPERACAO(?!\s+E\s+REGULARIZACAO)|\(\s*LO\s*\)|\bLO\b")),
+        ("LICENCA_UNICA", re.compile(r"LICENCA\s+UNICA|\(\s*LICENCA\s+UNICA\s*\)")),
+        ("ALVARA_FLORESTAL", re.compile(r"ALVARA\s+FLORESTAL")),
         ("AUTORIZACAO", re.compile(r"AUTORIZACAO\s+AMBIENTAL|\(\s*AUTORIZACAO\s*\)|AUTORIZACAO")),
         ("DECLARACAO", re.compile(r"DECLARACAO\s+AMBIENTAL|\(\s*DECLARACAO\s*\)|DECLARACAO")),
     ]
@@ -180,8 +182,10 @@ class FormularioParser:
         "LP": ["LP"], "LI": ["LI"], "LO": ["LO"],
         "LIR": ["LP", "LI"],           # LIR exige o somatório LP + LI
         "LOR": ["LP", "LI", "LO"],     # LOR exige o somatório LP + LI + LO
+        "LICENCA_UNICA": ["LP", "LI", "LO"],  # licença que substitui as 3 fases
         "AUTORIZACAO": ["AUTORIZACAO"],
         "DECLARACAO": ["DECLARACAO"],
+        "ALVARA_FLORESTAL": ["ALVARA_FLORESTAL"],
     }
 
     # Cabeçalhos que marcam o início da seção de documentação exigida (texto normalizado)
@@ -200,6 +204,19 @@ class FormularioParser:
         ("AUTORIZACAO", re.compile(r"AUTORIZACAO")),
         ("DECLARACAO", re.compile(r"DECLARACAO")),
     ]
+
+    # Formulários oficiais conhecidos (pacote SEMA): detecção pelo título/texto
+    # para escolher o checklist oficial específico de config/checklists_oficiais.json
+    FORMULARIOS_CONHECIDOS = {
+        "sitios_de_lazer": re.compile(r"SITIO[S]?\s+DE\s+LAZER|AREA\s+DE\s+LAZER"),
+        "exploracao_eventual_arvores_nativas": re.compile(
+            r"EXPLORACAO\s+EVENTUAL\s+DE\s+ARVORES\s+NATIVAS"),
+        "arvores_imunes_ao_corte": re.compile(r"IMUNES\s+AO\s+CORTE"),
+        "baixo_impacto_app": re.compile(
+            r"BAIXO\s+IMPACTO\s+EM\s+AREA\s+DE\s+PRESERVACAO|BAIXO\s+IMPACTO\s+EM\s+APP"),
+        "manejo_estagio_medio_2ha": re.compile(r"ESTAGIO\s+MEDIO\s+DE\s+REGENERACAO"),
+        "abertura_acude": re.compile(r"ABERTURA\s+DE\s+ACUDE"),
+    }
 
     def __init__(self,
                  caminho_arquivo: Optional[str] = None,
@@ -235,6 +252,8 @@ class FormularioParser:
         self.dados: dict[str, Any] = {}         # resultado consolidado
 
         self.checklist_oficial: dict[str, list[str]] = dict(checklist_oficial or {})
+        self.checklists_por_formulario: dict[str, dict] = {}
+        self._fonte_checklist_oficial = "checklist oficial SEMA"
         self.fonte_checklist = "formulário HTML"
         # cópia por instância: a mescla de rótulos extras não contamina a classe
         self.ROTULOS = {campo: list(lista) for campo, lista in self.ROTULOS.items()}
@@ -246,6 +265,9 @@ class FormularioParser:
                     self.checklist_oficial = {k: list(v) for k, v in listas.items()}
                     self._fonte_checklist_oficial = calibracao.checklists_oficiais.get(
                         "fonte", "checklist oficial")
+                por_form = calibracao.checklists_oficiais.get("checklists_por_formulario", {})
+                if isinstance(por_form, dict):
+                    self.checklists_por_formulario = por_form
             if calibracao.rotulos_formulario:
                 extras = calibracao.rotulos_formulario.get("rotulos", {})
                 for campo, lista in extras.items():
@@ -588,7 +610,7 @@ class FormularioParser:
     # Bloco 3 - Identificação do Pleito (tipo de licença)
     # ------------------------------------------------------------------
     def extrair_tipo_licenca(self) -> dict[str, Any]:
-        """Identifica a espécie do pleito: LP, LI, LO, LIR, LOR, Autorização ou Declaração."""
+        """Identifica a espécie do pleito: LP, LI, LO, LIR, LOR, Licença Única, Alvará Florestal, Autorização ou Declaração."""
         resultado: dict[str, Any] = {
             "tipo_licenca": None, "descricao_pleito": None, "fases_componentes": [],
         }
@@ -647,6 +669,19 @@ class FormularioParser:
                 return fase
         return None
 
+    def _detectar_formulario(self) -> Optional[str]:
+        """Identifica o formulário oficial pelo título/texto (pacote SEMA).
+
+        Retorna a chave de `checklists_por_formulario` correspondente ou None.
+        """
+        try:
+            for chave, padrao in self.FORMULARIOS_CONHECIDOS.items():
+                if padrao.search(self._texto_norm):
+                    return chave
+        except Exception as exc:  # noqa: BLE001
+            self._registrar_falha("_detectar_formulario", str(exc))
+        return None
+
     def extrair_documentos_exigidos(self, tipo_licenca: Optional[str] = None) -> dict[str, Any]:
         """Varre o final do formulário e extrai o checklist de documentos por fase.
 
@@ -673,11 +708,31 @@ class FormularioParser:
                 por_fase = self._varrer_checklist_regex()
 
             # Fallback 2 (oficial): usa os checklists calibrados a partir dos
-            # formulários oficiais do órgão (config/checklists_oficiais.json)
-            if not any(por_fase.values()) and self.checklist_oficial:
-                por_fase = {fase: list(docs) for fase, docs in self.checklist_oficial.items()
-                            if docs}
-                self.fonte_checklist = f"checklist oficial ({self.fonte_checklist})"
+            # formulários oficiais do órgão (config/checklists_oficiais.json).
+            # Se o formulário é um dos tipos conhecidos do pacote SEMA, usa o
+            # checklist específico daquele formulário.
+            if not any(por_fase.values()):
+                tipo_form = self._detectar_formulario()
+                dados_form = self.checklists_por_formulario.get(tipo_form or "", {})
+                if tipo_form and isinstance(dados_form.get("documentos"), list):
+                    fases = self.FASES_COMPONENTES.get(
+                        tipo_licenca, [tipo_licenca or "DOCUMENTOS"])
+                    por_fase = {fases[0]: list(dados_form["documentos"])}
+                    self.fonte_checklist = (
+                        f"checklist oficial do formulário '{tipo_form}' "
+                        f"({self._fonte_checklist_oficial})")
+                elif self.checklist_oficial:
+                    por_fase = {fase: list(docs)
+                                for fase, docs in self.checklist_oficial.items() if docs}
+                    # filtra pelas fases do pleito, quando conhecidas
+                    fases_pleito = self.FASES_COMPONENTES.get(tipo_licenca, [])
+                    if fases_pleito:
+                        filtrado = {fase: docs for fase, docs in por_fase.items()
+                                    if fase in fases_pleito}
+                        if filtrado:
+                            por_fase = filtrado
+                    self.fonte_checklist = (
+                        f"checklist oficial ({self._fonte_checklist_oficial})")
 
             # Se o formulário não sub-dividiu por fase, atribui tudo à fase do pleito
             itens_soltos = por_fase.pop("_SEM_FASE", [])

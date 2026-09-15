@@ -1,0 +1,104 @@
+{
+  "fonte": "Manual de Legislação e Taxas Ambientais - SEMA Campo Bom (Tabelas A-F; Anexo Único da Lei Municipal 4.439/2015, alterada pelas Leis 3.319/2008 e 4.068/2013; Código Tributário Lei 2.397/2002; Res. COMDEMA 003/2017)",
+  "fonte_url": "https://drive.google.com/file/d/15YNrc6iV54OZHFHvweKJci02XwIX6K89/view?usp=drive_link",
+  "fonte_tipo": "pacote_enviado_usuario_drive",
+  "revisado": true,
+  "revisado_em": "2026-09-15",
+  "trechos": {
+    "tabela_a_minimo": "TABELA A - | Mínimo | Baixo/Médio/Alto | 52,20 | 52,20 | 52,20 |",
+    "tabela_a_pequeno_medio": "TABELA A - | Pequeno | Médio | 143,90 | 245,30 | 172,70 |",
+    "tabela_b_transmissao": "TABELA B - Instalação de sistemas de transmissão e/ou retransmissão de rádio, televisão, telefonia e similares: LP 1.960,00 | LI 1.960,00 | LO 1.960,00",
+    "tabela_c_lavra": "TABELA C - Lavra de Minerais, 0,00 a 5,00 hectares, Potencial Médio: LP 1.015,70 | LI 1.105,10 | LO 812,60 (única faixa publicada)",
+    "tabela_d_parcelamento": "TABELA D - Parcelamento do solo: 0-5 ha: 1.290,70/1.386,12/1.386,12; 5,01-10 ha: 2.004,60/2.172,84/2.172,84; 10,01-20 ha: 2.294,76/2.568,96/2.568,96",
+    "tabela_e_comercio": "TABELA E - Comércio em Geral (Potencial Baixo): até 50,00 m²: 25,00; de 50,01 a 200,00 m²: 52,20; de 200,01 m² ou mais: 77,20 (LP=LI=LO)",
+    "tabela_f": "TABELA F - Descapoeiramento: até 500 m² = 20,00; mais de 500 m² = 100,00. Supressão de Árvores: até 5 = 4,00; 6 a 20 = 20,00; 21 a 50 = 50,00; mais de 50 = 80,00. Movimentação de Terras: até 150 m³ = 50,00; mais de 150 m³ = 150,00",
+    "lir_lor": "Res. COMDEMA 003/2017 (Art. 1º ao 3º): LI-R e LO-R aplicam regras específicas de SOMATÓRIO de taxas pelo fato gerador omitido"
+  },
+  "nota_revisao": [
+    "Calibrado com o Manual de Legislação e Taxas Ambientais enviado pelo licenciador (Google Drive, 2026-09-15).",
+    "DIVERGÊNCIA SINALIZADA (ERB/Transmissão): o Manual oficial (Tabela B) fixa 1.960,00 URM para LP=LI=LO de sistemas de transmissão/retransmissão de rádio, TV e telefonia; a especificação original do sistema pedia 612/714/510 URMs. Aplicado o valor OFICIAL.",
+    "DIVERGÊNCIA SINALIZADA (Lavra Mineral): o Manual publica APENAS a faixa 0-5 ha (Médio). Para áreas acima de 5 ha o sistema repete a linha publicada e emite aviso de revisão manual no resultado.",
+    "DIVERGÊNCIA SINALIZADA (Parcelamento): faixas oficiais do Manual vão até 20 ha; acima disso o sistema repete a faixa 10,01-20 ha com aviso de revisão manual.",
+    "INTERPRETAÇÃO REVISÁVEL (Licença Única): o Manual não detalha a taxa; o sistema aplica o somatório LP+LI+LO (análogo ao LOR), por substituir as três fases.",
+    "Autorização e Declaração: a Tabela F cobre descapoeiramento, supressão de árvores e movimentação de terras; autorização SEMA genérica e Declaração não têm valor publicado - mantido o valor interno 52,20 URM (igual ao Porte Mínimo da Tabela A) como provisório, com aviso."
+  ],
+  "matriz": {
+    "GERAL": {
+      "MINIMO": {
+        "BAIXO": {"LP": 52.20, "LI": 52.20, "LO": 52.20},
+        "MEDIO": {"LP": 52.20, "LI": 52.20, "LO": 52.20},
+        "ALTO":  {"LP": 52.20, "LI": 52.20, "LO": 52.20}
+      },
+      "PEQUENO": {
+        "BAIXO": {"LP": 72.10,    "LI": 218.80,   "LO": 102.30},
+        "MEDIO": {"LP": 143.90,   "LI": 245.30,   "LO": 172.70},
+        "ALTO":  {"LP": 208.30,   "LI": 568.40,   "LO": 488.40}
+      },
+      "MEDIO": {
+        "BAIXO": {"LP": 507.90,   "LI": 774.00,    "LO": 387.60},
+        "MEDIO": {"LP": 1015.70,  "LI": 1105.10,   "LO": 812.60},
+        "ALTO":  {"LP": 1523.60,  "LI": 1508.20,   "LO": 1969.60}
+      },
+      "GRANDE": {
+        "BAIXO": {"LP": 2681.50,  "LI": 1438.50,   "LO": 1191.80},
+        "MEDIO": {"LP": 3575.40,  "LI": 2383.60,   "LO": 2383.60},
+        "ALTO":  {"LP": 5363.10,  "LI": 4171.30,   "LO": 4171.30}
+      },
+      "EXCEPCIONAL": {
+        "BAIXO": {"LP": 8041.20,  "LI": 3216.50,   "LO": 3216.50},
+        "MEDIO": {"LP": 10721.60, "LI": 4288.70,   "LO": 4288.70},
+        "ALTO":  {"LP": 18762.90, "LI": 17154.60,  "LO": 17154.60}
+      }
+    },
+    "ERB": {
+      "FIXO": {
+        "_": {"LP": 1960.00, "LI": 1960.00, "LO": 1960.00}
+      }
+    },
+    "LAVRA_MINERAL": {
+      "0 a 5 ha":    {"_": {"LP": 1015.70, "LI": 1105.10, "LO": 812.60}},
+      "5 a 10 ha":   {"_": {"LP": 1015.70, "LI": 1105.10, "LO": 812.60}},
+      "10 a 20 ha":  {"_": {"LP": 1015.70, "LI": 1105.10, "LO": 812.60}},
+      "> 20 ha":     {"_": {"LP": 1015.70, "LI": 1105.10, "LO": 812.60}}
+    },
+    "PARCELAMENTO_SOLO": {
+      "0 a 5 ha":    {"_": {"LP": 1290.70, "LI": 1386.12, "LO": 1386.12}},
+      "5 a 10 ha":   {"_": {"LP": 2004.60, "LI": 2172.84, "LO": 2172.84}},
+      "10 a 20 ha":  {"_": {"LP": 2294.76, "LI": 2568.96, "LO": 2568.96}},
+      "> 20 ha":     {"_": {"LP": 2294.76, "LI": 2568.96, "LO": 2568.96}}
+    },
+    "COMERCIO": {
+      "ate 50 m2":     {"_": {"LP": 25.00, "LI": 25.00, "LO": 25.00}},
+      "50 a 200 m2":   {"_": {"LP": 52.20, "LI": 52.20, "LO": 52.20}},
+      "acima 200 m2":  {"_": {"LP": 77.20, "LI": 77.20, "LO": 77.20}}
+    }
+  },
+  "valores_especie": {
+    "AUTORIZACAO": 52.20,
+    "DECLARACAO": 52.20
+  },
+  "tabela_f_autorizacoes": {
+    "descapoeiramento": [
+      {"faixa": "ate 500 m2",     "limite": 500.0, "unidade": "m2", "valor": 20.00},
+      {"faixa": "mais de 500 m2", "limite": null,  "unidade": "m2", "valor": 100.00}
+    ],
+    "supressao_arvores": [
+      {"faixa": "ate 5 arvores",  "limite": 5.0,  "unidade": "arvores", "valor": 4.00},
+      {"faixa": "6 a 20 arvores", "limite": 20.0, "unidade": "arvores", "valor": 20.00},
+      {"faixa": "21 a 50 arvores","limite": 50.0, "unidade": "arvores", "valor": 50.00},
+      {"faixa": "mais de 50",     "limite": null, "unidade": "arvores", "valor": 80.00}
+    ],
+    "movimentacao_terras": [
+      {"faixa": "ate 150 m3",     "limite": 150.0, "unidade": "m3", "valor": 50.00},
+      {"faixa": "mais de 150 m3", "limite": null,  "unidade": "m3", "valor": 150.00}
+    ]
+  },
+  "grupos_palavras_chave": {
+    "COMERCIO": ["COMERCIO EM GERAL", "COMERCIO VAREJISTA DE GENEROS", "LOJA", "COMERCIO DE PRODUTOS", "VAREJO"]
+  },
+  "observacoes": [
+    "URM instituída pelo Código Tributário Municipal (Lei 2.397/2002); valores do Anexo Único da Lei 4.439/2015.",
+    "Decreto Municipal 5.579/2013: movimentação de terras superior a 150 m³ exige projeto específico e licenciamento expresso.",
+    "LIR/LOR: regra de somatório das fases confirmada pela Res. COMDEMA 003/2017 (regularização com caráter punitivo/compensatório)."
+  ]
+}

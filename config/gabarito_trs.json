@@ -15,7 +15,7 @@
   },
   "revisado": true,
   "revisado_em": "2026-09-15",
-  "nota_revisao": "Valores extraídos LITERALMENTE dos TRs oficiais publicados pela Prefeitura e conferidos item a item. DIVERGÊNCIA registrada: o TR PRAD oficial fixa monitoramento mínimo de 2 anos (item 5.7); a especificação original do sistema previa 4 anos - ajuste o parâmetro 'prad_monitoramento_minimo_anos' se a exigência interna for maior.",
+  "nota_revisao": "Valores extraídos LITERALMENTE dos TRs oficiais publicados pela Prefeitura e conferidos item a item. DIVERGÊNCIA registrada: o TR PRAD oficial fixa monitoramento mínimo de 2 anos (item 5.7); a especificação original do sistema previa 4 anos - ajuste o parâmetro 'prad_monitoramento_minimo_anos' se a exigência interna for maior. | Conferido integralmente com o pacote de TRs enviado pelo licenciador (Google Drive, 15/09/2026): Meio Físico (22/12/2025), Aterro RSCC (31/08/2026), EIV e EIV Simplificado - parâmetros confirmados sem alteração; checklists EIV/LCV ampliados com o conteúdo do TR completo.",
   "parametros": {
     "rscc_distancia_minima_lencol_m": {
       "valor": 1.5,
@@ -175,31 +175,175 @@
   },
   "trs_checklist_conteudo": {
     "EIV": {
-      "nome": "TR Estudo de Impacto de Vizinhança (simplificado)",
+      "nome": "TR Estudo de Impacto de Vizinhança (completo e simplificado - Lei 5.329/2022)",
       "itens": {
-        "Identificação do empreendimento (razão social, CNPJ, logradouro, bairro, contato)": ["razao social", "cnpj", "logradouro", "bairro"],
-        "Caracterização geral e descrição do empreendimento": ["descricao do empreendimento", "caracterizacao geral", "justificativa do empreendimento"],
-        "Indicadores de porte/CODRAM": ["porte", "codram"],
-        "Geração de tráfego, carga e descarga": ["trafego", "carga e descarga"],
-        "Geração de ruídos e vibrações (decibéis)": ["ruidos", "vibracoes", "decibeis"],
-        "Identificação e caracterização de riscos": ["riscos"],
-        "Medidas de controle/mitigação dos impactos": ["medidas para controle", "medidas mitigadoras", "medidas de controle"],
-        "ART dos responsáveis": ["art", "anotacao de responsabilidade tecnica"]
+        "Identificação do empreendimento (razão social, CNPJ, logradouro, bairro, contato)": [
+          "razao social",
+          "cnpj",
+          "logradouro",
+          "bairro"
+        ],
+        "Caracterização geral e descrição do empreendimento": [
+          "descricao do empreendimento",
+          "caracterizacao geral",
+          "justificativa do empreendimento"
+        ],
+        "Indicadores de porte/CODRAM": [
+          "porte",
+          "codram"
+        ],
+        "Geração de tráfego, carga e descarga": [
+          "trafego",
+          "carga e descarga"
+        ],
+        "Geração de ruídos e vibrações (decibéis)": [
+          "ruidos",
+          "vibracoes",
+          "decibeis"
+        ],
+        "Identificação e caracterização de riscos": [
+          "riscos"
+        ],
+        "Medidas de controle/mitigação dos impactos": [
+          "medidas para controle",
+          "medidas mitigadoras",
+          "medidas de controle"
+        ],
+        "ART dos responsáveis": [
+          "art",
+          "anotacao de responsabilidade tecnica"
+        ],
+        "Caracterização da área de influência e população fixa/flutuante": [
+          "area de influencia",
+          "populacao fixa",
+          "populacao flutuante"
+        ],
+        "Fases de implantação e operação (prazos, volumetria, vagas, carga e descarga)": [
+          "fases de implantacao",
+          "volumetria",
+          "vagas de estacionamento",
+          "carga e descarga"
+        ],
+        "Sistemas de saneamento e abastecimento (efluentes, água, energia, resíduos)": [
+          "saneamento",
+          "tratamento de efluentes",
+          "abastecimento de agua",
+          "energia eletrica",
+          "residuos solidos"
+        ],
+        "Recursos hídricos e drenagem pluvial na área de estudo": [
+          "recursos hidricos",
+          "drenagem",
+          "aguas pluviais"
+        ],
+        "Consulta à população atingida (reuniões e mecanismos de conciliação)": [
+          "consulta a populacao",
+          "comunidades afetadas",
+          "conciliacao"
+        ],
+        "Estudo volumétrico do empreendimento e seu entorno": [
+          "estudo volumetrico"
+        ],
+        "Zoneamentos incidentes (Lei Municipal 5.329/2022)": [
+          "zoneamento"
+        ],
+        "Cronograma de execução das medidas mitigadoras e compensatórias": [
+          "cronograma de execucao",
+          "medidas compensatorias"
+        ]
       }
     },
     "LCV": {
       "nome": "TR Laudo de Cobertura Vegetal e Manejo da Flora",
       "itens": {
-        "Área de estudo com georreferenciamento e imagem de satélite": ["georreferenciamento", "imagem de satelite"],
-        "Descrição do método de inventário florestal (esforço amostral, dados, equipe)": ["inventario", "esforco amostral", "metodo"],
-        "Inventário fitossociológico com parâmetros (IVI, densidade, cubagem)": ["fitossociolog", "indice de valor de importancia", "densidade"],
-        "Estágio sucessional da formação florestal": ["estagio sucessional"],
-        "Espécies raras, endêmicas, ameaçadas e imunes ao corte georreferenciadas": ["ameacadas", "imunes ao corte", "raras"],
-        "APPs na área e a 100 m do limite": ["app", "area de preservacao permanente"],
-        "Croqui/Mapa de Caracterização Ambiental com quadro de áreas": ["croqui", "mapa de caracterizacao"],
-        "Relatório fotográfico": ["relatorio fotografico", "fotograf"],
-        "Parecer técnico conclusivo da flora": ["parecer tecnico conclusivo"]
+        "Área de estudo com georreferenciamento e imagem de satélite": [
+          "georreferenciamento",
+          "imagem de satelite"
+        ],
+        "Descrição do método de inventário florestal (esforço amostral, dados, equipe)": [
+          "inventario",
+          "esforco amostral",
+          "metodo"
+        ],
+        "Inventário fitossociológico com parâmetros (IVI, densidade, cubagem)": [
+          "fitossociolog",
+          "indice de valor de importancia",
+          "densidade"
+        ],
+        "Estágio sucessional da formação florestal": [
+          "estagio sucessional"
+        ],
+        "Espécies raras, endêmicas, ameaçadas e imunes ao corte georreferenciadas": [
+          "ameacadas",
+          "imunes ao corte",
+          "raras"
+        ],
+        "APPs na área e a 100 m do limite": [
+          "app",
+          "area de preservacao permanente"
+        ],
+        "Croqui/Mapa de Caracterização Ambiental com quadro de áreas": [
+          "croqui",
+          "mapa de caracterizacao"
+        ],
+        "Relatório fotográfico": [
+          "relatorio fotografico",
+          "fotograf"
+        ],
+        "Parecer técnico conclusivo da flora": [
+          "parecer tecnico conclusivo"
+        ],
+        "Suficiência amostral por curva espécie/área ou amostragem completa do lote": [
+          "curva especie",
+          "suficiencia amostral",
+          "curva especie/area"
+        ],
+        "Inventário total de exemplares com DAP > 10 cm (terrenos urbanos)": [
+          "dap",
+          "10 cm"
+        ],
+        "Epífitos protegidos/ameaçados nas plantas a suprimir e manejo (resgate/realocação)": [
+          "epifito"
+        ],
+        "Nidificações e enxames de meliponídeos": [
+          "nidificacao",
+          "meliponideo",
+          "enxame"
+        ],
+        "Formação de corredores ecológicos e interação com o entorno": [
+          "corredor ecologico"
+        ],
+        "Enquadramento da gleba no bioma Mata Atlântica (Lei 11.428/2006)": [
+          "mata atlantica"
+        ],
+        "Cubagem da madeira da gleba e da vegetação a extrair (m³ e estéreo) com memorial de cálculo": [
+          "cubagem",
+          "estereo",
+          "memorial de calculo"
+        ],
+        "Projetos de manejo conforme TR (Supressão/Reposição Florestal, Transplante, Espécie Ameaçada, Resgate de Epífitos)": [
+          "projeto de supressao",
+          "reposicao florestal",
+          "transplante",
+          "resgate",
+          "especie ameaçada"
+        ],
+        "Demarcação das glebas e indivíduos com fita zebrada e identificação": [
+          "fita zebrada",
+          "demarcac"
+        ]
       }
+    }
+  },
+  "pacote_drive_usuario": {
+    "descricao": "Pacote de TRs enviado pelo licenciador (Google Drive) usado para conferência integral",
+    "url": "https://drive.google.com/file/d/1IllA9j57vTm8UnbLEIZWg_HIaHLkcoqo/view?usp=sharing",
+    "conferido_em": "2026-09-15",
+    "documentos": {
+      "TR Meio Físico (Laudo Geológico e Hidrológico)": "datado 22/12/2025",
+      "TR Aterro RSCC Classe A": "datado 31/08/2026",
+      "TR EIV (completo, 13 seções)": "Lei Municipal 5.329/2022",
+      "TR EIV Simplificado": "Lei Municipal 5.329/2022, Art. 65"
     }
   }
 }

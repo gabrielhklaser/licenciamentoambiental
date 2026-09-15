@@ -890,50 +890,75 @@ class AuditorTecnico:
     def _rotear_trs(self, texto: str) -> list[str]:
         """Identifica quais TRs são aplicáveis ao documento (por palavras-chave).
 
-        Os sinais são combinados para evitar falsos positivos (ex.: um PCA que
-        apenas menciona 'supressão de vegetação' não deve disparar a RFO).
+        Os sinais são PONTUADOS (forte = 2, fraco = 1) para evitar falsos
+        positivos (ex.: um PCA que apenas menciona 'supressão de vegetação'
+        não deve disparar a RFO; um laudo RFO que cita 'cobertura vegetal' não
+        deve disparar o checklist LCV - mantém-se o TR de melhor aderência).
         """
         t = ProvedorLLMHeuristico._norm(texto)
-        trs = []
+        score: dict[str, int] = {}
+
+        def sinal(tr: str, pontos: int) -> None:
+            if pontos > 0:
+                score[tr] = score.get(tr, 0) + pontos
 
         # --- Sondagem / Meio Físico (RSCC ou Parcelamento) ---
-        if ("sondagem" in t or "trincheira" in t or "lencol freatico" in t
-                or ("cota base" in t and "aterro" in t)
-                or ("furos" in t and ("ha " in t or "hectare" in t))):
-            trs.append("SONDAGEM")
+        if "sondagem" in t or "trincheira" in t:
+            sinal("SONDAGEM", 2)
+        if "lencol freatico" in t or ("cota base" in t and "aterro" in t):
+            sinal("SONDAGEM", 2)
+        if "furos" in t and ("ha " in t or "hectare" in t):
+            sinal("SONDAGEM", 1)
 
         # --- Reposição Florestal Obrigatória ---
-        if ("reposicao florestal" in t
-                or (("suprimid" in t or "supressao" in t) and "mudas" in t)
-                or ("individuos nativos" in t and "mudas" in t)
-                or "densidade de plantio" in t):
-            trs.append("RFO")
+        if "reposicao florestal" in t or "densidade de plantio" in t:
+            sinal("RFO", 2)
+        if ("individuos nativos" in t and "mudas" in t) or \
+                (("suprimid" in t or "supressao" in t) and "mudas" in t):
+            sinal("RFO", 2)
 
         # --- PRAD ---
         if ("prad" in t or "plano de recuperacao de area degradada" in t
-                or "projeto de recuperacao de area degradada" in t
-                or ("area degradada" in t and ("cronograma" in t or "monitoramento" in t))):
-            trs.append("PRAD")
+                or "projeto de recuperacao de area degradada" in t):
+            sinal("PRAD", 2)
+        if "area degradada" in t and ("cronograma" in t or "monitoramento" in t):
+            sinal("PRAD", 1)
 
         # --- Fauna ---
-        if any(k in t for k in ["fauna", "mastofauna", "avifauna", "herpetofauna",
-                                "ictiofauna", "entomofauna", "lfs"]):
-            trs.append("FAUNA")
+        if any(k in t for k in ["mastofauna", "avifauna", "herpetofauna",
+                                "ictiofauna", "entomofauna"]):
+            sinal("FAUNA", 2)
+        if "fauna" in t or "lfs" in t:
+            sinal("FAUNA", 1)
 
         # --- PCA ---
-        if ("plano de controle ambiental" in t or "pca" in t
-                or ("relatorios" in t and ("periodicidade" in t or "cronograma de relatorios" in t))):
-            trs.append("PCA")
+        if "plano de controle ambiental" in t or "pca" in t:
+            sinal("PCA", 2)
+        if "relatorios" in t and ("periodicidade" in t or "cronograma de relatorios" in t):
+            sinal("PCA", 1)
 
         # --- EIV (estudo de impacto de vizinhança) ---
-        if "impacto de vizinhanca" in t or "eiv" in t:
-            trs.append("EIV")
+        if "impacto de vizinhanca" in t:
+            sinal("EIV", 2)
+        elif "eiv" in t:
+            sinal("EIV", 1)
 
         # --- LCV (laudo de cobertura vegetal) ---
-        if ("laudo de cobertura vegetal" in t or "cobertura vegetal" in t
-                or "inventario florestal" in t or "fitossociolog" in t):
-            trs.append("LCV")
-        return trs
+        if ("laudo de cobertura vegetal" in t or "inventario florestal" in t
+                or "fitossociolog" in t):
+            sinal("LCV", 2)
+        if "cobertura vegetal" in t:
+            sinal("LCV", 1)
+
+        # Disputa RFO x LCV: mantém apenas o TR de melhor aderência
+        if score.get("RFO") and score.get("LCV"):
+            if score["RFO"] >= score["LCV"]:
+                score.pop("LCV")
+            else:
+                score.pop("RFO")
+
+        ordem = ["SONDAGEM", "RFO", "PRAD", "FAUNA", "PCA", "EIV", "LCV"]
+        return [tr for tr in ordem if score.get(tr, 0) > 0]
 
     def auditar_documento(self, nome_documento: str, texto: str) -> list[ResultadoValidacao]:
         """Aplica todos os TRs aplicáveis ao laudo e devolve a lista de resultados."""

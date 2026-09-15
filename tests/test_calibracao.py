@@ -54,9 +54,46 @@ def test_agente_financeiro_usa_tabela_calibrada(pasta_tmp):
     assert fin.valores_especie["DECLARACAO"] == 77.0
 
     # padrão de classe intacto por outras instâncias sem calibração
+    # (padrão = TABELA A oficial: Médio/Alto 1.523,60 + 1.508,20 + 1.969,60)
     fin_padrao = AgenteFinanceiro(caminho_taxas=str(pasta_tmp / "inexistente.json"))
     r2 = fin_padrao.calcular_taxa("LOR", "Médio", "Alto", "Indústria")
-    assert r2["total_urm"] == pytest.approx(1252.80)
+    assert r2["total_urm"] == pytest.approx(5001.40)
+
+def test_calibracao_tabela_f_autorizacoes(pasta_tmp):
+    """TABELA F calibrável via config/taxas_urm.json."""
+    config = {
+        "fonte": "Tabela F (teste)", "revisado": True,
+        "tabela_f_autorizacoes": {
+            "supressao_arvores": [
+                {"faixa": "ate 10 arvores", "limite": 10, "valor": 8.0},
+                {"faixa": "mais de 10", "limite": None, "valor": 40.0},
+            ]
+        },
+    }
+    caminho = pasta_tmp / "taxas_f.json"
+    caminho.write_text(json.dumps(config), encoding="utf-8")
+    fin = AgenteFinanceiro(caminho_taxas=str(caminho))
+    r = fin.calcular_taxa("AUTORIZACAO", "Pequeno", "Baixo", "Supressão de árvores",
+                          tipo_autorizacao="supressao_arvores",
+                          quantidade_autorizacao=25)
+    assert r["total_urm"] == pytest.approx(40.0)
+
+def test_config_oficial_taxas_ativo():
+    """config/taxas_urm.json (Manual SEMA) é o padrão ativo dos agentes."""
+    fin = AgenteFinanceiro()
+    assert fin.tabela_revisada is True
+    assert "Manual de Legislação e Taxas Ambientais" in fin.fonte_tabela
+    # Tabela A oficial (amostra)
+    assert fin.matriz["GERAL"]["PEQUENO"]["BAIXO"]["LP"] == pytest.approx(72.10)
+    assert fin.matriz["GERAL"]["EXCEPCIONAL"]["ALTO"]["LO"] == pytest.approx(17154.60)
+    # Tabelas B/C/D/E oficiais
+    assert fin.matriz["ERB"]["FIXO"]["_"]["LI"] == pytest.approx(1960.00)
+    assert fin.matriz["LAVRA_MINERAL"]["0 a 5 ha"]["_"]["LO"] == pytest.approx(812.60)
+    assert fin.matriz["PARCELAMENTO_SOLO"]["5 a 10 ha"]["_"]["LI"] == pytest.approx(2172.84)
+    assert fin.matriz["COMERCIO"]["ate 50 m2"]["_"]["LP"] == pytest.approx(25.00)
+    # Tabela F oficial (amostra)
+    valores = [f["valor"] for f in fin.tabela_f["SUPRESSAO_ARVORES"]]
+    assert valores == [4.0, 20.0, 50.0, 80.0]
 
 
 def test_auditor_tecnico_usa_gabarito_calibrado(pasta_tmp):

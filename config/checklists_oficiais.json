@@ -1,0 +1,145 @@
+{
+  "fonte": "Formulários oficiais SEMA Campo Bom - pacote enviado pelo licenciador (Google Drive: formulários_compress.pdf; Formulário para Área de Lazer 2025-2 e formulários florais 2026)",
+  "fonte_url": "https://drive.google.com/file/d/1AQLWUw_6bFKjctRas8FSwml1YxOWf8c1/view?usp=drive_link",
+  "fonte_tipo": "pacote_enviado_usuario_drive",
+  "revisado": true,
+  "revisado_em": "2026-09-15",
+  "documentos_por_fase": {
+    "LP": [
+      "Formulário de Informações para Licenciamento Ambiental de Sítios de Lazer, devidamente preenchido e assinado",
+      "Cópia do CNPJ",
+      "Contrato social da empresa",
+      "Cópia do documento de identificação do(s) responsável(eis) legal(ais)",
+      "Cópia da matrícula atualizada (validade de 30 dias conforme Provimento 037/2018-CGJ)",
+      "Cópia do contrato de locação, se for o caso",
+      "Plano de Gerenciamento de Resíduos Sólidos",
+      "Cópia do projeto arquitetônico com ART ou RRT do responsável técnico",
+      "Certidão de zoneamento afirmando viabilidade do empreendimento",
+      "Croqui da área total do lote com estruturas existentes e projetadas",
+      "Alvará de funcionamento",
+      "Laudo de Cobertura Vegetal (LCV), com ART de profissional habilitado",
+      "Laudo geológico, com ART do responsável técnico",
+      "Em caso de ampliação, justificativa da atividade a ser ampliada e do processo produtivo a ser implantado",
+      "ART de profissional habilitado responsável pelo licenciamento ambiental",
+      "Projeto de captação e retenção de águas pluviais para área total construída igual ou superior a 500 m² (Resolução COMDEMA nº 11/2025)",
+      "Relatório técnico-fotográfico da área onde será instalado o empreendimento",
+      "Outros documentos a critério da SEMA"
+    ],
+    "LI": [
+      "Requerimento padrão solicitando licenciamento ambiental, assinado pelo empreendedor",
+      "Formulário de Licenciamento Ambiental devidamente preenchido e assinado, com ART do responsável técnico",
+      "Projeto de construção aprovado pelo Departamento de Planejamento do Município, com ART",
+      "Memorial Descritivo do Projeto Arquitetônico, com cronograma de execução e ART",
+      "Layout do prédio industrial e demais áreas (armazenamento de resíduos, insumos, ETE, refeitório, área administrativa)",
+      "Projeto de Tratamento de Efluentes com ART/AFT, conforme Diretriz Técnica FEPAM nº 05/2017 (se houver geração de efluentes)",
+      "Projeto de Exaustão e Coleta de Materiais Particulados com ART/AFT, conforme Diretriz Técnica FEPAM nº 01/2018 (se houver emissões atmosféricas)",
+      "Plano de Gerenciamento de Resíduos da Construção Civil (PGRCC) com ART",
+      "Demais documentos solicitados na LP",
+      "Projeto de captação e retenção de águas pluviais para área total construída igual ou superior a 500 m² (Resolução COMDEMA nº 11/2025)",
+      "Projeto de Reposição Florestal Obrigatória (RFO), se for o caso, conforme TR RFO",
+      "Cópia do Alvará dos Bombeiros (na LI aceito protocolo do PPCI com ART de elaboração e execução)",
+      "Outros documentos a critério da SEMA"
+    ],
+    "LO": [
+      "Requerimento padrão solicitando licenciamento ambiental, assinado pelo empreendedor",
+      "Formulário de Licenciamento Ambiental devidamente preenchido e assinado, com ART do responsável técnico",
+      "Cópia do Contrato Social",
+      "Cópia do CNPJ",
+      "Cópia do Alvará Municipal",
+      "Cópia da matrícula",
+      "Cópia do contrato de locação, se for o caso",
+      "Cópia do Alvará dos Bombeiros vigente (alto risco: somente alvará vigente; baixo/médio risco: protocolo PPCI com ART/RRT)",
+      "Relatório técnico-fotográfico do processo produtivo contendo descrição das atividades",
+      "Plano de Gerenciamento de Resíduos Sólidos (PGRS) com ART para elaboração e execução",
+      "Certidão de Registro no Cadastro Florestal Estadual (quando houver uso de lenha)",
+      "Outros documentos a critério da SEMA"
+    ],
+    "AUTORIZACAO": [
+      "Matrícula atualizada do Registro de Imóveis ou comprovante de propriedade/posse/cessão de uso (validade de 30 dias)",
+      "Projeto Técnico com data e assinatura do responsável técnico (justificativa, cronograma, marcação numérica em campo)",
+      "Laudo de Cobertura Vegetal da área a ser manejada, com ART",
+      "Mapa da propriedade georreferenciado em shape file (APPs e Reserva Legal, SIRGAS 2000)",
+      "Croqui de localização da área ou dos indivíduos a serem manejados",
+      "Planilha Padrão de Inventário Florestal (modelo SINAFLOR/IBAMA)",
+      "ART do(s) responsável(is) técnico(s) pela elaboração e execução"
+    ],
+    "DECLARACAO": [
+      "Requerimento padrão assinado pelo empreendedor",
+      "Formulário de Licenciamento Ambiental preenchido e assinado com ART",
+      "Documentação específica solicitada pelos técnicos da SEMA conforme o caso"
+    ]
+  },
+  "checklists_por_formulario": {
+    "sitios_de_lazer": {
+      "titulo_detecta": ["SITIO DE LAZER", "SITIOS DE LAZER", "AREA DE LAZER"],
+      "fases": "usar documentos_por_fase (LP/LI/LO do formulário oficial 2025-2)",
+      "renovacao": [
+        "Procuração do empreendedor para técnico ou consultoria do Licenciamento Ambiental",
+        "Formulário de Informações preenchido e assinado, com ART do técnico",
+        "Alvará de funcionamento",
+        "Plano de Gerenciamento de Resíduos Sólidos, com ART do responsável",
+        "Declaração de não alteração da atividade/área licenciada",
+        "Alvará de Bombeiros",
+        "Alvará da Vigilância Sanitária (piscinas e lancherias/restaurantes)",
+        "ART de profissional habilitado responsável pelo licenciamento ambiental"
+      ]
+    },
+    "exploracao_eventual_arvores_nativas": {
+      "titulo_detecta": ["EXPLORACAO EVENTUAL DE ARVORES NATIVAS"],
+      "documentos": [
+        "Matrícula atualizada do Registro de Imóveis ou comprovante de propriedade/posse/cessão de uso (validade 30 dias - Provimento 037/2018-CGJ)",
+        "Declaração de enquadramento como pequeno produtor rural (Lei Federal nº 11.326/2006)",
+        "Projeto Técnico: identificação da propriedade, objetivo/justificativa com cronograma, marcação numérica em campo dos exemplares, ART",
+        "Laudo de Cobertura Vegetal da área a ser manejada: área total, caracterização com nomenclatura popular e científica, imunes ao corte e ameaçadas de extinção, volume de lenha estimado, dendrometria e volumetria, medidas mitigadoras/compensatórias, método de execução, fotografias, ART",
+        "Mapa da propriedade georreferenciado em shape file (poligonal, APPs da Lei 12.651/2012, Reserva Legal, uso consolidado; SIRGAS 2000)",
+        "Planilha Padrão de Inventário Florestal - modelo SINAFLOR/IBAMA"
+      ]
+    },
+    "arvores_imunes_ao_corte": {
+      "titulo_detecta": ["IMUNES AO CORTE"],
+      "documentos": [
+        "Matrícula atualizada do Registro de Imóveis ou comprovante de propriedade/posse/cessão de uso (validade 30 dias)",
+        "Projeto Técnico para Supressão, Podas ou Transplante de Árvores Nativas Imunes ao Corte: justificativa, identificação botânica, dados dendrométricos (copa, fuste, altura), sanidade e raridade/abundância, laudo de risco à integridade física/patrimonial ou Declaração de Utilidade Pública/Interesse Social, avaliação de alternativas, cronograma, fotografias, metodologia, marcação numérica em campo, ART",
+        "Supressão: medidas de mitigação e compensação e estimativa de volume de material vegetal a ser gerado",
+        "Transplante: metodologia, local de realocação, autorização do proprietário quando a área pertencer a terceiros, tratos silviculturais e cronograma de acompanhamento",
+        "Podas: percentual, volume estimado, equipamentos e tratamentos fitossanitários",
+        "Croqui de localização da área ou dos indivíduos a serem manejados",
+        "Planilha Padrão de Inventário Florestal - modelo SINAFLOR/IBAMA"
+      ]
+    },
+    "baixo_impacto_app": {
+      "titulo_detecta": ["BAIXO IMPACTO AMBIENTAL EM AREA DE PRESERVACAO PERMANENTE", "BAIXO IMPACTO EM APP"],
+      "documentos": [
+        "Matrícula atualizada do Registro de Imóveis ou comprovante de propriedade/posse/cessão de uso (validade 30 dias)",
+        "Projeto Técnico: identificação da propriedade e proprietário, objetivo/justificativa/descrição da intervenção com cronograma, marcação numérica em campo, ART",
+        "Laudo de Cobertura Vegetal: área total, caracterização da cobertura com nomenclatura popular e científica, imunes ao corte e ameaçadas, volume de lenha, dendrometria/volumetria, medidas mitigadoras/compensatórias, metodologia de execução, fotografias, ART",
+        "Formulário com identificação de Unidades de Conservação no raio de 10 km (municipal, estadual, federal)",
+        "Mapa da propriedade georreferenciado em shape file (APPs da Lei 12.651/2012, Reserva Legal, uso consolidado; SIRGAS 2000)",
+        "Croqui de localização da área ou dos indivíduos a serem manejados",
+        "Planilha Inventário Florestal Amostral - modelo SINAFLOR/IBAMA"
+      ]
+    },
+    "manejo_estagio_medio_2ha": {
+      "titulo_detecta": ["ESTAGIO MEDIO DE REGENERACAO NATURAL"],
+      "documentos": [
+        "Matrícula atualizada do Registro de Imóveis ou comprovante de propriedade/posse/cessão de uso (validade 30 dias)",
+        "Declaração de enquadramento como pequeno produtor rural (Lei Federal nº 11.326/2006)",
+        "Projeto Técnico: identificação, objetivo/justificativa/descrição com cronograma, marcação numérica em campo, ART",
+        "Laudo de Cobertura Vegetal conforme o TR municipal ou, no mínimo: área total, caracterização com nomenclatura popular e científica, imunes/ameaçadas, volume de lenha, dendrometria/volumetria, medidas mitigadoras, metodologia, fotografias, ART",
+        "Mapa da propriedade georreferenciado em shape file (APPs da Lei 12.651/2012, Reserva Legal; SIRGAS 2000)",
+        "Planilha Inventário Florestal Amostral - modelo SINAFLOR/IBAMA"
+      ]
+    },
+    "abertura_acude": {
+      "titulo_detecta": ["ABERTURA DE ACUDE"],
+      "documentos": "usar documentos_por_fase (LP/LI/LO); formulário exige área total e profundidade do açude, capacidade de armazenamento (m³), altura do talude e ART por etapa (projeto, execução da obra, LCV/manejo/transplante, laudo geológico com levantamento plani-altimétrico)"
+    }
+  },
+  "regras_gerais": [
+    "Documentos anexados devem estar nomeados conforme o conteúdo e em formato PDF (fotos não são aceitas).",
+    "Assinatura digital com certificado ou firma reconhecida em cartório (Decreto Municipal nº 7.119/2021, § 2º).",
+    "Matrícula do imóvel com validade de 30 dias (Provimento nº 037/2018-CGJ).",
+    "Todo processo exige responsável técnico com ART; uma única ART pode cobrir o processo se descrever todas as atividades.",
+    "Análise conforme Resolução CONAMA nº 237/1997; a análise não exclui complementações."
+  ]
+}

@@ -112,14 +112,15 @@ def test_financeiro_porte_minimo_oficial():
 
 
 def test_financeiro_soma_lir_lor():
+    """TABELA A oficial (Lei 4.439/2015) + somatório da Res. COMDEMA 003/2017."""
     fin = AgenteFinanceiro()
     r_lor = fin.calcular_taxa("LOR", "Médio", "Alto", "Indústria de madeira")
-    # LOR = LP + LI + LO (placeholder 417,60 por fase na tabela provisória)
-    assert r_lor["composicao_fases"] == {"LP": 417.60, "LI": 417.60, "LO": 417.60}
-    assert r_lor["total_urm"] == pytest.approx(1252.80)
+    assert r_lor["composicao_fases"] == {"LP": 1523.60, "LI": 1508.20, "LO": 1969.60}
+    assert r_lor["total_urm"] == pytest.approx(5001.40)
 
     r_lir = fin.calcular_taxa("LIR", "Pequeno", "Médio", "Oficina mecânica")
-    assert r_lir["total_urm"] == pytest.approx(156.60 * 2)
+    assert r_lir["composicao_fases"] == {"LP": 143.90, "LI": 245.30}
+    assert r_lir["total_urm"] == pytest.approx(389.20)
 
 
 def test_financeiro_excecao_erb():
@@ -127,19 +128,97 @@ def test_financeiro_excecao_erb():
     r = fin.calcular_taxa("LI", "Mínimo", "Baixo",
                           "Estação de Rádio Base (ERB) / Transmissão")
     assert r["grupo_atividade"] == "ERB"
-    assert r["total_urm"] == pytest.approx(714.00)  # tabela própria da ERB
+    # TABELA B oficial: transmissão/retransmissão = 1.960,00 URM por fase
+    # (divergência com a especificação original 612/714/510 documentada no config)
+    assert r["composicao_fases"] == {"LI": 1960.00}
+    assert r["total_urm"] == pytest.approx(1960.00)
+    assert r["porte_ou_faixa"] == "FIXO"
 
 
 def test_financeiro_excecao_faixas_hectares():
+    """TABELAS C e D oficiais: Lavra 0-5 ha (única publicada) e Parcelamento."""
     fin = AgenteFinanceiro()
     lavra = fin.calcular_taxa("LI", "Pequeno", "Baixo",
                               "Extração mineral - Pedreira", area_ha=7.2)
     assert lavra["grupo_atividade"] == "LAVRA_MINERAL"
     assert lavra["porte_ou_faixa"] == "5 a 10 ha"
+    # Tabela C publica só 0-5 ha (Médio): acima disso repete a linha + aviso
+    assert lavra["total_urm"] == pytest.approx(1105.10)
+    assert any("não publicada" in a for a in lavra.get("avisos", []))
 
     lote = fin.calcular_taxa("LO", "Grande", "Alto",
                              "Parcelamento do solo - Loteamento", area_ha=3.0)
     assert lote["porte_ou_faixa"] == "0 a 5 ha"
+    assert lote["total_urm"] == pytest.approx(1386.12)
+
+    lote12 = fin.calcular_taxa("LOR", "Grande", "Alto",
+                               "Parcelamento do solo - Loteamento", area_ha=12.0)
+    assert lote12["porte_ou_faixa"] == "10 a 20 ha"
+    assert lote12["total_urm"] == pytest.approx(2294.76 + 2568.96 + 2568.96)
+
+
+def test_financeiro_comercio_tabela_e():
+    """TABELA E: Comércio em Geral (Baixo) por área construída."""
+    fin = AgenteFinanceiro()
+    pequena = fin.calcular_taxa("LP", "Pequeno", "Baixo",
+                                "Comércio em geral - loja", area_m2=30.0)
+    assert pequena["grupo_atividade"] == "COMERCIO"
+    assert pequena["total_urm"] == pytest.approx(25.00)
+
+    media = fin.calcular_taxa("LOR", "Pequeno", "Baixo",
+                              "Comércio varejista", area_m2=150.0)
+    assert media["porte_ou_faixa"] == "50 a 200 m2"
+    assert media["total_urm"] == pytest.approx(52.20 * 3)
+
+    grande = fin.calcular_taxa("LI", "Pequeno", "Baixo",
+                               "Loja de departamentos", area_m2=320.0)
+    assert grande["total_urm"] == pytest.approx(77.20)
+
+    # comércio de potencial Alto NÃO fica na Tabela E (só publica Baixo)
+    alto = fin.calcular_taxa("LP", "Médio", "Alto",
+                             "Comércio de produtos químicos")
+    assert alto["grupo_atividade"] == "GERAL"
+
+    # sem área informada: fallback Tabela A com aviso
+    sem_area = fin.calcular_taxa("LP", "Pequeno", "Baixo", "Comércio em geral")
+    assert sem_area["grupo_atividade"] == "GERAL"
+    assert any("TABELA A" in a for a in sem_area.get("avisos", []))
+
+
+def test_financeiro_tabela_f_autorizacoes():
+    """TABELA F: taxa única de autorizações por tipo/quantidade."""
+    fin = AgenteFinanceiro()
+    r = fin.calcular_taxa("AUTORIZACAO", "Pequeno", "Baixo",
+                          "Supressão de árvores",
+                          tipo_autorizacao="supressao_arvores",
+                          quantidade_autorizacao=30)
+    assert r["grupo_atividade"] == "TABELA_F"
+    assert r["total_urm"] == pytest.approx(50.00)  # 21 a 50 árvores
+
+    r2 = fin.calcular_taxa("AUTORIZACAO", "Pequeno", "Baixo",
+                           "Movimentação de terras",
+                           tipo_autorizacao="movimentacao_terras",
+                           quantidade_autorizacao=200)
+    assert r2["total_urm"] == pytest.approx(150.00)  # mais de 150 m³
+
+    # sem quantidade: menor faixa provisória + aviso
+    r3 = fin.calcular_taxa("AUTORIZACAO", "Pequeno", "Baixo",
+                           "Descapoeiramento", tipo_autorizacao="descapoeiramento")
+    assert r3["total_urm"] == pytest.approx(20.00)
+    assert any("provisória" in a for a in r3.get("avisos", []))
+
+    # autorização genérica (sem tipo): valor interno provisório + aviso
+    r4 = fin.calcular_taxa("AUTORIZACAO", "Pequeno", "Baixo", "Autorização ambiental")
+    assert r4["total_urm"] == pytest.approx(52.20)
+    assert any("Tabela F" in a for a in r4.get("avisos", []))
+
+
+def test_financeiro_licenca_unica():
+    """Licença Única (requerimento oficial): somatório LP+LI+LO."""
+    fin = AgenteFinanceiro()
+    r = fin.calcular_taxa("LICENCA_UNICA", "Mínimo", "Baixo", "Padaria")
+    assert r["total_urm"] == pytest.approx(52.20 * 3)
+    assert "Licença Única" in r["regra_aplicada"]
 
 
 # ==============================================================================
