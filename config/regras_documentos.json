@@ -1,0 +1,15 @@
+{
+  "fonte": "Regras gerais de conferência documental definidas pelo licenciador SEMA Campo Bom (instrução de 15/09/2026)",
+  "fonte_tipo": "instrucao_licenciador",
+  "revisado": true,
+  "revisado_em": "2026-09-15",
+  "nota_revisao": [
+    "PRAZO DA MATRÍCULA: o licenciador definiu validade de 90 DIAS contados da data de emissão, que fica no FINAL do documento (canto inferior esquerdo).",
+    "DIVERGÊNCIA SINALIZADA: o formulário oficial de Sítios de Lazer cita o Provimento nº 037/2018-CGJ com validade de MATRÍCULA de 30 dias. Aplicado o prazo do licenciador (90 dias); ajuste 'matricula_validade_dias' aqui se necessário.",
+    "A data de emissão é procurada na CAUDA do texto (últimos ~900 caracteres), onde ficam o fechamento do oficial de registro e a certificação digital (canto inferior esquerdo)."
+  ],
+  "parametros": {
+    "matricula_validade_dias": 90,
+    "matricula_cauda_caracteres": 900
+  }
+}

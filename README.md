@@ -165,15 +165,29 @@ o TR oficial vigente (5.7) fixa 2 anos — o gabarito segue o oficial, ajustáve
   Pydantic estruturado (sem alucinação de formato).
 - PDFs escaneados ficam em `REVISAO_MANUAL` com gancho de OCR (`pytesseract`) documentado.
 
-## ⚙️ Fase 4 — Dashboard e ofícios
+## ⚙️ Fase 4 — Dashboard em duas etapas (upload → análise + parecer)
 
-- Upload múltiplo `.htm/.html` + `.pdf/.txt`; painel de semáforo (🟢/🟡/🔴) em `st.expander`;
-- Análise financeira com composição por fase em URMs;
-- **Aprovação humana**: comentários do analista editáveis (entram no ofício) e confirmação
-  de revisão que libera o botão **“Baixar Minuta de Ofício (.docx)”**;
-- `gerar_oficio_complementacao()` consolida pendências administrativas e técnicas com
-  justificativas (ex.: *“Furo de sondagem insuficiente conforme exigência técnica mínima”*),
-  trechos de referência, base legal e prazo.
+**Etapa 1 — Upload:** a página inicial pede apenas a subida dos documentos do processo:
+**`.htm`/`.html`** (formulário), **`.pdf`**, **Word (`.docx`)**, **Excel (`.xlsx`)** e `.txt`/`.csv`.
+
+**Etapa 2 — Avaliação:** após carregar os arquivos e clicar em "Analisar documentação":
+
+- **Quadro resumo da documentação**: cada exigência da licença é classificada como
+  **✅ em conformidade**, **🟡 com pendência(s)** ou **❌ não apresentada**, com o arquivo
+  correspondente e a descrição exata das pendências;
+- **Análise por documento recebido**: identificação do tipo (matrícula, CNPJ, ART, PGRS,
+  alvarás, laudos de TR…) e validações específicas — destaque para a **matrícula do imóvel**:
+  a data de emissão é procurada no **final do documento (canto inferior esquerdo**, fechamento
+  do oficial de registro/certificação digital) e o prazo de validade de **90 dias** é conferido
+  (`config/regras_documentos.json`; o formulário oficial cita 30 dias pelo Provimento
+  037/2018-CGJ — divergência sinalizada no JSON);
+- **Auditoria técnica** pelos Termos de Referência (RSCC/Parcelamento, RFO, PRAD, Fauna, PCA,
+  EIV/LCV) + triagem administrativa + taxa em URMs;
+- **📄 Emissão do Parecer Técnico (.docx)**: botão final que gera o parecer formal da SEMA
+  com identificação do processo, documentação apresentada, quadro de exigências, pendências
+  administrativas e técnicas e, na **conclusão, a lista numerada do que falta** para
+  contemplar toda a documentação da licença (com prazo e assinatura).
+  O ofício de complementação (`gerar_oficio_complementacao`) permanece disponível no pipeline.
 
 ---
 

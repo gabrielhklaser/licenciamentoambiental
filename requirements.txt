@@ -20,6 +20,7 @@ pypdf>=4.0               # extração de texto de laudos PDF
 streamlit>=1.31
 pandas>=2.0
 python-docx>=1.1
+openpyxl>=3.1             # leitura de planilhas Excel (.xlsx) no upload
 
 # Dependência de DEV (apenas para regenerar os laudos de exemplo):
 # reportlab>=4.0

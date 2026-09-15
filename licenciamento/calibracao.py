@@ -14,6 +14,8 @@ Arquivos de configuração (todos opcionais; presença => calibração ativa):
     config/gabarito_trs.json         -> parâmetros dos Termos de Referência (AuditorTecnico)
     config/checklists_oficiais.json  -> checklists oficiais por fase (FormularioParser)
     config/rotulos_formulario.json   -> rótulos extras dos formulários (FormularioParser)
+    config/regras_documentos.json    -> regras de conferência documental (ValidadorDocumentos:
+                                        prazo da matrícula, extração da data de emissão)
 
 Cada arquivo carrega a chave "fonte" (documento de origem) e "revisado" (bool)
 para rastreabilidade: valores extraídos automaticamente nascem com
@@ -36,6 +38,7 @@ DESCRICOES_CONFIG = {
     "gabarito_trs": "Parâmetros dos Termos de Referência (validações técnicas)",
     "checklists_oficiais": "Checklists oficiais de documentos por fase (formulários)",
     "rotulos_formulario": "Rótulos adicionais dos formulários oficiais",
+    "regras_documentos": "Regras gerais de conferência documental (ex.: validade da matrícula)",
 }
 
 
@@ -48,6 +51,7 @@ class Calibracao:
         self.gabarito_trs: Optional[dict] = None
         self.checklists_oficiais: Optional[dict] = None
         self.rotulos_formulario: Optional[dict] = None
+        self.regras_documentos: Optional[dict] = None
         self._carregar()
 
     # ------------------------------------------------------------------
@@ -71,6 +75,7 @@ class Calibracao:
         self.gabarito_trs = self._ler("gabarito_trs")
         self.checklists_oficiais = self._ler("checklists_oficiais")
         self.rotulos_formulario = self._ler("rotulos_formulario")
+        self.regras_documentos = self._ler("regras_documentos")
 
     # ------------------------------------------------------------------
     @property
@@ -78,7 +83,7 @@ class Calibracao:
         """Indica se ao menos um arquivo de calibração está presente."""
         return any(x is not None for x in
                    (self.taxas_urm, self.gabarito_trs, self.checklists_oficiais,
-                    self.rotulos_formulario))
+                    self.rotulos_formulario, self.regras_documentos))
 
     def resumo(self) -> dict[str, Any]:
         """Resumo legível do estado de calibração (exibido no dashboard)."""

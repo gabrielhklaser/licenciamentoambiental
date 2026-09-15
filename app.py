@@ -1,346 +1,485 @@
 # -*- coding: utf-8 -*-
 """
-FASE 4 - Dashboard de Triagem de Licenciamento Ambiental (Streamlit)
-=====================================================================
+FASE 4 - Dashboard de Licenciamento Ambiental (Streamlit)
+=========================================================
 
-Interface web que consolida as saídas das Fases 1, 2 e 3:
+Fluxo em DUAS ETAPAS (wizard):
 
-    - Upload múltiplo (.html/.htm do formulário + .pdf/.txt dos laudos);
-    - Painel de semáforo com expanders por etapa de auditoria:
-        ① Triagem Administrativa (verde OK / vermelho bloqueado-pendências);
-        ② Análise Financeira (cálculo final em URMs);
-        ③ Auditoria Técnica (regras dos Termos de Referência validadas);
-    - Aprovação humana: comentários editáveis do analista antes do ofício;
-    - Geração da Minuta de Ofício (.docx) com as pendências consolidadas.
+    ETAPA 1 — UPLOAD: a página inicial pede apenas a subida dos documentos
+    do processo (.htm/.html do formulário, .pdf, .docx, .xlsx, .txt).
 
-Execução:  streamlit run app.py
+    ETAPA 2 — ANÁLISE: após carregar os arquivos, exibe a avaliação com o
+    QUADRO RESUMO da documentação (recebidos em conformidade / com
+    pendências / não apresentados + quais são as pendências), as análises
+    por documento (ex.: validade da matrícula - 90 dias da emissão) e, ao
+    final, o botão de emissão do PARECER TÉCNICO (.docx) apontando o que
+    falta para contemplar toda a documentação da licença.
 """
 
 from __future__ import annotations
 
-import json
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-from sqlalchemy.orm import Session
 
 from licenciamento.agente_administrativo import AgenteAdministrativo
 from licenciamento.agente_financeiro import AgenteFinanceiro
 from licenciamento.auditor_tecnico import AuditorTecnico
-from licenciamento.banco import obter_engine, salvar_processo, semear_tabela_urm
 from licenciamento.calibracao import Calibracao
 from licenciamento.esquemas_tecnicos import StatusValidacao
 from licenciamento.gerador_oficios import GeradorOficios
 from licenciamento.parser_formulario import FormularioParser
+from licenciamento.validador_documentos import (EXTENSOES_TEXTO,
+                                                ValidadorDocumentos)
 
-RAIZ = Path(__file__).parent
+RAIZ = Path(__file__).resolve().parent
 
-st.set_page_config(page_title="Licenciamento Ambiental · Campo Bom",
+st.set_page_config(page_title="Licenciamento Ambiental — SEMA Campo Bom",
                    page_icon="🌿", layout="wide")
 
-# ============================================================================
-# Estado da sessão
-# ============================================================================
-if "processo" not in st.session_state:
-    st.session_state.processo = None
-if "anexados_texto" not in st.session_state:
-    st.session_state.anexados_texto = ""
-if "comentarios" not in st.session_state:
-    st.session_state.comentarios = ""
+# Formatos aceitos no upload (etapa 1)
+FORMATOS_UPLOAD = ["htm", "html", "pdf", "docx", "doc", "xlsx", "xls", "txt", "csv", "rtf"]
 
 
-# ============================================================================
-# Funções auxiliares do pipeline
-# ============================================================================
-def executar_analise(arquivos: list, anexados: list[str]) -> None:
-    """Roda o pipeline completo (Fases 1 -> 2 -> 3) e guarda em session_state."""
-    formulario = next((a for a in arquivos if a.name.lower().endswith((".htm", ".html"))), None)
-    laudos = [a for a in arquivos if a.name.lower().endswith((".pdf", ".txt"))]
-
-    if formulario is None:
-        st.error("Envie o formulário do processo (.htm ou .html).")
-        return
-
-    with st.spinner("⏳ Processando o formulário e os laudos..."):
-        # FASE 1 - Parser
-        parser = FormularioParser(caminho_arquivo=None, conteudo_html=formulario.getvalue().decode("utf-8", errors="replace"))
-        dados = parser.gerar_json()
-
-        # FASE 2 - Agentes determinísticos
-        resultado_admin = AgenteAdministrativo().auditar(dados, anexados)
-        resultado_financeiro = AgenteFinanceiro().calcular_do_parser(dados)
-
-        # FASE 3 - Auditor técnico (TRs)
-        auditor = AuditorTecnico()
-        textos_laudos = {a.name: AuditorTecnico.extrair_texto(a.name, a.getvalue())
-                         for a in laudos}
-        resultados_tecnicos = auditor.auditar_lote(textos_laudos)
-
-        gerador = GeradorOficios()
-        pendencias = gerador._coletar_pendencias(dados, resultado_admin, resultados_tecnicos)
-
-    st.session_state.processo = {
-        "dados": dados,
-        "admin": resultado_admin,
-        "financeiro": resultado_financeiro,
-        "tecnicos": resultados_tecnicos,
-        "anexados": anexados,
-        "gabarito": {"fonte": auditor.fonte_gabarito, "revisado": auditor.gabarito_revisado},
-    }
-    st.session_state.comentarios = gerador._comentario_sugerido(pendencias)
-    st.toast("Análise concluída!", icon="✅")
-
-
-def carregar_exemplo_ficticio() -> None:
-    """Carrega o processo LOR fictício empacotado em /exemplos (mock data)."""
-    arquivos: list = []
-
-    class ArquivoFake:  # simula o UploadedFile do Streamlit
-        def __init__(self, caminho: Path):
-            self.name = caminho.name
-            self._bytes = caminho.read_bytes()
-
-        def getvalue(self) -> bytes:
-            return self._bytes
-
-    formulario = RAIZ / "exemplos" / "formulario_LOR_medio_alto.htm"
-    arquivos.append(ArquivoFake(formulario))
-    for laudo in sorted((RAIZ / "exemplos" / "laudos").glob("*.pdf")):
-        arquivos.append(ArquivoFake(laudo))
-
-    # Simulação: TODOS os documentos exigidos foram anexados (as 2 pendências
-    # do exemplo vêm da AUDITORIA TÉCNICA: RFO + PCA)
-    anexados = [
-        "formulario_enquadramento_assinado.pdf", "copia_cpf_cnpj.pdf",
-        "matricula_imovel_atualizada.pdf", "planta_localizacao.pdf",
-        "eiv_estudo_impacto_vizinhanca.pdf", "art_responsavel_tecnico.pdf",
-        "copia_licenca_previa.pdf", "pca_plano_controle_ambiental.pdf",
-        "projeto_executivo_sistema_tratamento_efluentes.pdf", "pgrs.pdf",
-        "licenca_supressao_vegetacao.pdf", "rca_relatorio_controle_ambiental.pdf",
-        "laudo_sistema_tratamento_efluentes.pdf", "certificado_conclusao_pca.pdf",
-        "alvara_bombeiros.pdf",
-    ]
-    st.session_state.anexados_texto = "\n".join(anexados)
-    executar_analise(arquivos, anexados)
-
-
+# ======================================================================
+# Helpers de apresentação
+# ======================================================================
 def _fmt_urm(valor) -> str:
-    """Formata um valor de URM no padrão brasileiro (ex.: 1.252,80)."""
+    """Formata um valor de URM no padrão brasileiro (ex.: 5.001,40)."""
     if valor is None:
         return "—"
     return f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def emoji_status_admin(status: str) -> str:
-    return {"APROVADO": "🟢", "PENDENTE": "🟡", "BLOQUEADO": "🔴"}.get(status, "⚪")
+def emoji_situacao(situacao: str) -> str:
+    """Semáforo do quadro resumo de documentos."""
+    return {"CONFORME": "✅", "PENDENTE": "🟡",
+            "NAO_APRESENTADO": "❌"}.get(situacao, "⚪")
+
+
+def rotulo_situacao(situacao: str) -> str:
+    return {"CONFORME": "Em conformidade", "PENDENTE": "Com pendência(s)",
+            "NAO_APRESENTADO": "Não apresentado"}.get(situacao, situacao)
 
 
 def emoji_status_tecnico(status: StatusValidacao) -> str:
-    return {StatusValidacao.CONFORME: "🟢",
-            StatusValidacao.PENDENTE: "🔴",
-            StatusValidacao.REVISAO_MANUAL: "🟡"}.get(status, "⚪")
+    return {"CONFORME": "🟢", "PENDENTE": "🟡",
+            "REVISAO_MANUAL": "🔵"}.get(getattr(status, "value", str(status)), "⚪")
 
 
-# ============================================================================
-# BARRA LATERAL - Upload e roteamento
-# ============================================================================
-with st.sidebar:
-    st.title("🌿 Licenciamento Ambiental")
-    st.caption("Prefeitura de Campo Bom · Secretaria Municipal do Meio Ambiente")
-    with st.expander("⚙️ Calibração (documentos oficiais)"):
-        resumo_cal = Calibracao().resumo()
-        if resumo_cal["ativa"]:
-            for chave, info in resumo_cal["itens"].items():
-                if info["ativa"]:
-                    selo = "✅" if info["revisado"] else "🟡 (rascunho)"
-                    st.markdown(f"**{chave}** {selo}")
-                    st.caption(f"Fonte: {info['fonte']}")
-            st.caption("Rascunhos (🟡) precisam de revisão: "
-                       "`python ferramentas/ingestar_pdfs.py --promover`")
-        else:
-            st.caption("Usando padrões internos. Rode `ferramentas/ingestar_pdfs.py` "
-                       "com os PDFs oficiais para calibrar.")
-    st.divider()
+def rodape_calibracao() -> None:
+    """Rodapé: fontes oficiais ativas (config/)."""
+    cal = Calibracao()
+    fontes: list[str] = []
+    if cal.taxas_urm:
+        selo = "" if cal.taxas_urm.get("revisado") else " (🟡 rascunho)"
+        fontes.append(f"💰 Taxas: {cal.taxas_urm.get('fonte')}{selo}")
+    if cal.gabarito_trs:
+        selo = "" if cal.gabarito_trs.get("revisado") else " (🟡 rascunho)"
+        fontes.append(f"📐 TRs: {cal.gabarito_trs.get('fonte')}{selo}")
+    if cal.checklists_oficiais:
+        selo = "" if cal.checklists_oficiais.get("revisado") else " (🟡 rascunho)"
+        fontes.append(f"📋 Formulários: {cal.checklists_oficiais.get('fonte')}{selo}")
+    if cal.regras_documentos:
+        fontes.append(f"🗂️ Regras documentais: {cal.regras_documentos.get('fonte')}")
+    if fontes:
+        st.caption("Calibração ativa — " + "  |  ".join(fontes))
 
-    st.subheader("1 · Submissão do processo")
+
+# ======================================================================
+# ETAPA 2 — Motor da análise (parser + agentes + quadro + parecer)
+# ======================================================================
+def executar_analise(arquivos: list) -> None:
+    """Processa os arquivos carregados e monta o estado do processo.
+
+    Args:
+        arquivos: lista de objetos com `.name` e `.getvalue()` (UploadedFile
+            do Streamlit ou wrapper do exemplo fictício).
+    """
+    validador = ValidadorDocumentos()
+
+    formularios = [a for a in arquivos if Path(a.name).suffix.lower() in (".htm", ".html")]
+    documentos = [a for a in arquivos
+                  if Path(a.name).suffix.lower() not in (".htm", ".html")]
+
+    # ---- Fase 1: parser do formulário -------------------------------
+    dados: dict = {}
+    if formularios:
+        try:
+            parser = FormularioParser(conteudo_html=formularios[0].getvalue().decode(
+                "utf-8", errors="replace"))
+            dados = parser.parse()
+        except Exception as exc:  # noqa: BLE001
+            st.session_state.erro_formulario = str(exc)
+
+    pleito = dados.get("pleito", {})
+    tipo_licenca = pleito.get("tipo_licenca")
+
+    # checklist da licença: deduplicado do formulário (ou oficial por fase)
+    exigencias: list[str] = list(
+        dados.get("documentos_exigidos", {}).get("lista_deduplicada") or [])
+    if not exigencias and tipo_licenca:
+        cal = Calibracao()
+        por_fase = (cal.checklists_oficiais or {}).get("documentos_por_fase", {})
+        fases = {"LIR": ["LP", "LI"], "LOR": ["LP", "LI", "LO"]}.get(
+            tipo_licenca, [tipo_licenca])
+        for fase in fases:
+            exigencias.extend(por_fase.get(fase, []))
+
+    # ---- Extração de texto e análise por documento -------------------
+    arquivos_analise: list[dict] = []
+    analises: dict[str, object] = {}
+    resultados_tecnicos: list = []
+    auditor = AuditorTecnico()
+    for arq in documentos:
+        texto = validador.extrair_texto(arq.name, arq.getvalue())
+        registro = {"nome": arq.name, "texto": texto,
+                    "tipo": validador.identificar_tipo(arq.name, texto)}
+        arquivos_analise.append(registro)
+        analises[arq.name] = validador.analisar_documento(arq.name, texto)
+        if len(texto.strip()) >= 40:
+            resultados_tecnicos.extend(auditor.auditar_documento(arq.name, texto))
+
+    # o formulário também participa do casamento do quadro
+    for form in formularios:
+        arquivos_analise.append({"nome": form.name,
+                                 "texto": validador.extrair_texto(
+                                     form.name, form.getvalue()),
+                                 "tipo": "FORMULARIO"})
+
+    # ---- Fase 2: agentes administrativo e financeiro -----------------
+    nomes_anexos = [a.name for a in arquivos]
+    admin = AgenteAdministrativo().auditar(dados, nomes_anexos) if dados else {
+        "status_geral": "BLOQUEADO",
+        "bloqueios": ["Formulário .htm/.html do requerimento não apresentado."],
+        "resumo": {"total_ok": 0, "total_pendentes": 0},
+        "documentos_pendentes": [],
+        "avisos": []}
+    financeiro = AgenteFinanceiro().calcular_do_parser(dados) if dados else {}
+
+    # ---- Quadro resumo (checklist x arquivos x análises) -------------
+    quadro, extras = validador.montar_quadro(exigencias, arquivos_analise, analises)
+    resumo_quadro = validador.resumo_quadro(quadro)
+
+    st.session_state.processo = {
+        "dados": dados,
+        "admin": admin,
+        "financeiro": financeiro,
+        "tecnicos": resultados_tecnicos,
+        "analises": {k: v for k, v in analises.items()},
+        "quadro": quadro,
+        "extras": [e.get("nome") for e in extras],
+        "resumo_quadro": resumo_quadro,
+        "arquivos": nomes_anexos,
+        "exigencias": exigencias,
+        "regras": {"fonte": validador.fonte_regras,
+                   "revisado": validador.regras_revisadas,
+                   "validade_matricula_dias": validador.matricula_validade_dias},
+    }
+    st.session_state.etapa = "analise"
+
+
+# ======================================================================
+# ETAPA 1 — Página inicial (só a inserção dos documentos)
+# ======================================================================
+def pagina_upload() -> None:
+    st.title("🌿 Sistema de Verificação do Licenciamento Ambiental")
+    st.subheader("Secretaria Municipal do Meio Ambiente — Campo Bom/RS")
+
+    st.markdown(
+        "### 📤 Etapa 1 — Envie a documentação do processo\n"
+        "Suba os arquivos do requerimento para a análise prévia. "
+        "**Formatos aceitos:** formulário `.htm`/`.html`, `.pdf`, "
+        "Word (`.docx`), Excel (`.xlsx`), `.txt`/`.csv`.")
+
     arquivos = st.file_uploader(
-        "Formulário (.htm/.html) e documentos (.pdf/.txt)",
-        type=["htm", "html", "pdf", "txt"], accept_multiple_files=True)
+        "Documentos do processo (formulário + anexos)",
+        type=FORMATOS_UPLOAD, accept_multiple_files=True,
+        help="Dica: inclua o formulário do requerimento (.htm/.html) e todos os "
+             "documentos exigidos para a licença pleiteada (matrícula, ART, laudos, "
+             "PGRS, alvarás, etc.).")
 
-    st.subheader("2 · Arquivos anexados (simulação)")
-    st.caption("Na prototipagem, a submissão é simulada por esta lista "
-               "(um nome de arquivo por linha). Edite conforme o processo.")
-    anexados_padrao = "\n".join(a.name for a in arquivos if a) or \
-        st.session_state.anexados_texto
-    anexados_texto = st.text_area(
-        "Lista de anexos", value=anexados_padrao, height=170,
-        key="caixa_anexados",
-        help="Os nomes são casados com o checklist exigido por normalização e similaridade.")
-    anexados = [linha.strip() for linha in anexados_texto.splitlines() if linha.strip()]
-    st.session_state.anexados_texto = anexados_texto
+    if arquivos:
+        st.markdown(f"**{len(arquivos)} arquivo(s) carregado(s):**")
+        for arq in arquivos:
+            st.markdown(f"- 📄 `{arq.name}` — {len(arq.getvalue()) / 1024:,.0f} KB")
+
+    col1, col2, _ = st.columns([1.1, 1.0, 2.2])
+    with col1:
+        if st.button("🔍 Analisar documentação", type="primary",
+                     disabled=not arquivos,
+                     help="Executa a triagem, a conferência do checklist, a auditoria "
+                          "técnica pelos TRs e monta o quadro resumo."):
+            with st.spinner("Analisando a documentação (Fases 1 a 3)..."):
+                executar_analise(arquivos)
+            st.rerun()
+
+    with col2:
+        if st.button("🧪 Carregar exemplo fictício",
+                     help="Popula a análise com um processo LOR de demonstração "
+                          "(inclui matrícula vencida para exibir a validação de 90 dias)."):
+            carregar_exemplo_ficticio()
+            st.rerun()
+
+    if st.session_state.get("erro_formulario"):
+        st.error(f"Falha ao interpretar o formulário: "
+                 f"{st.session_state.erro_formulario}")
+
+    rodape_calibracao()
+
+
+def carregar_exemplo_ficticio() -> None:
+    """Processo LOR fictício empacotado em /exemplos (mock data)."""
+    class ArquivoFake:
+        """Simula o UploadedFile do Streamlit."""
+        def __init__(self, caminho: Path, conteudo: bytes | None = None):
+            self.name = caminho if isinstance(caminho, str) else caminho.name
+            self._bytes = conteudo if conteudo is not None else (
+                caminho.read_bytes() if isinstance(caminho, Path) else b"")
+
+        def getvalue(self) -> bytes:
+            return self._bytes
+
+    arquivos: list = []
+    formulario = RAIZ / "exemplos" / "formulario_LOR_medio_alto.htm"
+    arquivos.append(ArquivoFake(formulario))
+
+    # matrícula sintética com data de emissão ANTIGA -> dispara a validação
+    # de 90 dias (a data fica no final do documento, canto inferior esquerdo)
+    matricula_txt = (
+        "MATRÍCULA Nº 39.715 - Registro de Imóveis de Campo Bom/RS\n"
+        "Imóvel: estrada municipal, distrito sede. Área total: 12.000 m².\n"
+        "Propriedade de: Madeireira Vale do Sinos Ltda, CNPJ 12.345.678/0001-90.\n"
+        "ônus: hipoteca em favor do Banco X. Servidão de passagem.\n"
+        "Campo Bom, 05 de março de 2026.\n"
+        "Oficial de Registro de Imóveis\n"
+        "(documento assinado digitalmente conforme Lei 11.419/2006)")
+    arquivos.append(ArquivoFake("matricula_imovel_atualizada.txt",
+                                matricula_txt.encode("utf-8")))
+    for laudo in sorted((RAIZ / "exemplos" / "laudos").glob("*.pdf")):
+        arquivos.append(ArquivoFake(laudo))
+
+    # demais exigências do checklist entram como documentos virtuais legíveis
+    for nome in ["copia_cpf_cnpj.txt", "contrato_social.txt",
+                 "planta_localizacao.txt", "eiv_estudo_impacto_vizinhanca.txt",
+                 "art_responsavel_tecnico.txt", "copia_licenca_previa.txt",
+                 "projeto_executivo_sistema_tratamento_efluentes.txt",
+                 "pgrs.txt", "licenca_supressao_vegetacao.txt",
+                 "rca_relatorio_controle_ambiental.txt",
+                 "laudo_sistema_tratamento_efluentes.txt",
+                 "certificado_conclusao_pca.txt", "alvara_bombeiros.txt"]:
+        arquivos.append(ArquivoFake(nome, f"Documento: {nome}".encode("utf-8")))
+
+    st.session_state.anexados_texto = ""
+    executar_analise(arquivos)
+
+
+# ======================================================================
+# ETAPA 2 — Página de avaliação (quadro resumo + parecer técnico)
+# ======================================================================
+def pagina_analise() -> None:
+    processo = st.session_state.get("processo") or {}
+    dados = processo.get("dados", {})
+    admin = processo.get("admin", {})
+    financeiro = processo.get("financeiro", {})
+    tecnicos = processo.get("tecnicos", [])
+    quadro = processo.get("quadro", [])
+    resumo = processo.get("resumo_quadro", {})
+    analises = processo.get("analises", {})
+
+    st.title("📋 Etapa 2 — Avaliação da documentação")
+    if st.button("⬅️ Enviar outros documentos"):
+        st.session_state.etapa = "upload"
+        st.session_state.processo = None
+        st.rerun()
+
+    emp = dados.get("empreendimento", {})
+    pleito = dados.get("pleito", {})
+    c1, c2, c3, c4 = st.columns([1.6, 1.0, 1.2, 0.9])
+    c1.metric("Empreendimento", (emp.get("nome_empreendimento") or "—")[:36])
+    c2.metric("Licença pleiteada", pleito.get("tipo_licenca") or "—")
+    c3.metric("Triagem", (dados.get("status_triagem") or "—").replace("_", " ").upper())
+    c4.metric("Taxa (URMs)", _fmt_urm(financeiro.get("total_urm")))
 
     st.divider()
-    if st.button("🔍 **Executar análise prévia**", type="primary",
-                 disabled=not arquivos, width="stretch"):
-        executar_analise(arquivos, anexados)
 
-    if st.button("🧪 Carregar processo fictício de exemplo (LOR)",
-                 width="stretch",
-                 help="Simulação exigida na especificação: LOR porte Médio/potencial Alto "
-                      "com duas pendências técnicas (RFO e PCA)."):
-        carregar_exemplo_ficticio()
+    # --------------------------------------------------------------
+    # QUADRO RESUMO DA DOCUMENTAÇÃO
+    # --------------------------------------------------------------
+    st.subheader("🗂️ Quadro resumo da documentação")
+    total = len(quadro)
+    st.markdown(
+        f"**✅ {resumo.get('CONFORME', 0)} em conformidade** · "
+        f"**🟡 {resumo.get('PENDENTE', 0)} com pendência(s)** · "
+        f"**❌ {resumo.get('NAO_APRESENTADO', 0)} não apresentado(s)** "
+        f"— de {total} exigência(s) para a licença "
+        f"**{pleito.get('tipo_licenca') or '—'}**")
 
-# ============================================================================
-# ÁREA PRINCIPAL
-# ============================================================================
-st.header("Painel de Triagem de Licenciamento Ambiental")
-st.caption("Fase 1 (Parser) → Fase 2 (Agentes Administrativo/Financeiro) → "
-           "Fase 3 (Auditor Técnico) → Fase 4 (Ofício)")
-
-processo = st.session_state.processo
-if processo is None:
-    st.info("⬅️ Envie o formulário .htm/.html do processo e os laudos (.pdf) na barra "
-            "lateral e clique em **Executar análise prévia** — ou carregue o "
-            "**processo fictício de exemplo** para ver o sistema em ação.")
-    st.stop()
-
-dados = processo["dados"]
-admin = processo["admin"]
-fin = processo["financeiro"]
-tecnicos = processo["tecnicos"]
-empreendimento = dados.get("empreendimento", {})
-pleito = dados.get("pleito", {})
-pendencias_totais = len(admin.get("documentos_pendentes", [])) + len(admin.get("bloqueios", [])) \
-    + sum(1 for t in tecnicos if t.itens_reprovados)
-
-# ------------------------- Faixa superior de status -------------------------
-c1, c2, c3, c4 = st.columns([1.2, 1.2, 1, 1])
-c1.metric("Empreendimento", (empreendimento.get("nome_empreendimento") or "—")[:34],
-          f"{pleito.get('tipo_licenca', '—')} · Porte {empreendimento.get('porte', '—')} · "
-          f"Potencial {empreendimento.get('potencial_poluidor', '—')}")
-c2.metric("Triagem do Parser", dados.get("status_triagem", "—").replace("_", " ").upper(),
-          f"ART: {dados.get('responsavel_tecnico', {}).get('registro_art') or 'AUSENTE'}")
-c3.metric("Administrativo", f"{emoji_status_admin(admin['status_geral'])} {admin['status_geral']}",
-          f"{admin['resumo']['total_ok']}/{admin['resumo']['total_exigidos']} docs OK")
-c4.metric("Taxa (URMs)", _fmt_urm(fin.get("total_urm")),
-          f"Pendências: {pendencias_totais}")
-
-st.divider()
-
-# ------------------------- ① Triagem Administrativa -------------------------
-with st.expander(f"① Triagem Administrativa — {emoji_status_admin(admin['status_geral'])} "
-                 f"{admin['status_geral']}", expanded=admin["status_geral"] != "APROVADO"):
-    if admin["bloqueios"]:
-        st.error("**🚫 Bloqueios administrativos (hard constraints):**\n\n"
-                 + "\n".join(f"- {b}" for b in admin["bloqueios"]))
-    if admin["documentos_pendentes"]:
-        st.warning("**Documentos pendentes:**\n\n"
-                   + "\n".join(f"- {p['documento']}" for p in admin["documentos_pendentes"]))
-    if admin["documentos_ok"]:
-        st.success(f"**Documentos OK ({len(admin['documentos_ok'])}):**\n\n"
-                   + ", ".join(admin["documentos_ok"]))
-    for aviso in admin.get("avisos", []):
-        st.caption(f"ℹ️ {aviso}")
-
-# ------------------------- ② Análise Financeira -----------------------------
-with st.expander(f"② Análise Financeira — {_fmt_urm(fin.get('total_urm'))} URMs"):
-    if fin.get("erro"):
-        st.error(f"Falha no cálculo: {fin['erro']}")
+    if quadro:
+        linhas_df = [{
+            "Exigência da licença": q.get("documento"),
+            "Situação": f"{emoji_situacao(q['situacao'])} {rotulo_situacao(q['situacao'])}",
+            "Arquivo apresentado": q.get("arquivo") or "—",
+            "Pendências": "  |  ".join(q.get("pendencias") or []) or "—",
+        } for q in quadro]
+        st.dataframe(pd.DataFrame(linhas_df), width="stretch", hide_index=True)
     else:
-        df_fases = pd.DataFrame(
-            [{"Fase": fase, "Valor (URMs)": _fmt_urm(valor)}
-             for fase, valor in fin.get("composicao_fases", {}).items()])
-        e1, e2 = st.columns(2)
-        with e1:
-            st.markdown(f"**Grupo de atividade:** {fin.get('grupo_atividade')}")
-            st.markdown(f"**Porte/Faixa:** {fin.get('porte_ou_faixa')}")
-            if fin.get("regra_aplicada"):
-                st.markdown(f"**Regra:** {fin['regra_aplicada']}")
-        with e2:
-            st.dataframe(df_fases, width="stretch", hide_index=True)
-            st.markdown(f"### Total: {_fmt_urm(fin.get('total_urm'))} URMs")
-            selo = "" if fin.get("tabela_revisada") else " (🟡 rascunho - conferir Manual)"
-            st.caption(f"📚 Fonte da tabela: {fin.get('fonte_tabela')}{selo}")
+        st.info("Sem checklist de exigências para esta licença "
+                "(formulário não identificado).")
 
-# ------------------------- ③ Auditoria Técnica ------------------------------
-with st.expander("③ Auditoria Técnica — Termos de Referência validados",
-                 expanded=any(t.itens_reprovados for t in tecnicos)):
-    gab = (processo.get("gabarito") or {})
-    if gab:
-        selo = "" if gab.get("revisado") else " (🟡 rascunho - conferir TRs)"
-        st.caption(f"📐 Gabarito dos TRs: {gab.get('fonte')}{selo}")
-    if not tecnicos:
-        st.info("Nenhum laudo (.pdf/.txt) submetido para auditoria técnica.")
-    for resultado in tecnicos:
-        emoji = emoji_status_tecnico(resultado.status)
-        cab = f"{emoji} {resultado.documento_analisado} · {resultado.norma_tr} · **{resultado.status.value}**"
+    extras = processo.get("extras") or []
+    if extras:
+        with st.expander(f"📎 Documentos recebidos sem exigência correspondente "
+                         f"({len(extras)})"):
+            for nome in extras:
+                st.markdown(f"- `{nome}`")
+
+    regras = processo.get("regras") or {}
+    if regras:
+        selo = "" if regras.get("revisado") else " (🟡 rascunho)"
+        st.caption(f"🗂️ Regras documentais: {regras.get('fonte')} — validade da "
+                   f"matrícula: {regras.get('validade_matricula_dias')} dias da "
+                   f"emissão{selo}")
+
+    # --------------------------------------------------------------
+    # ANÁLISE POR DOCUMENTO RECEBIDO
+    # --------------------------------------------------------------
+    st.subheader("🔎 Análise dos documentos recebidos")
+    ordem = {"CONFORME": 0, "PENDENTE": 1, "REVISAO_MANUAL": 2}
+    por_nome = sorted(analises.items(),
+                      key=lambda kv: (ordem.get(getattr(kv[1], "status").value, 3),
+                                      kv[0]))
+    for nome, analise in por_nome:
+        emoji = emoji_status_tecnico(analise.status)
+        cab = (f"{emoji} {nome} · {analise.norma_tr or 'Documento'} · "
+               f"**{analise.status.value}**")
         with st.container(border=True):
             st.markdown(cab)
-            st.caption(f"Motor da análise: {resultado.origem.value}")
-            if resultado.itens_reprovados:
-                st.error("\n".join(f"**✗** {item}" for item in resultado.itens_reprovados))
-            if resultado.trecho_referencia:
-                st.markdown(f"> 📄 *Trecho de referência do laudo:* \"{resultado.trecho_referencia}\"")
-            with st.expander("Ver métricas extraídas"):
-                st.json(resultado.metricas)
+            if analise.itens_reprovados:
+                st.error("\n".join(f"**✗** {item}" for item in analise.itens_reprovados))
+            metricas = analise.metricas or {}
+            if metricas.get("data_emissao"):
+                st.markdown(
+                    f"**Matrícula:** emitida em {metricas['data_emissao'][8:10]}/"
+                    f"{metricas['data_emissao'][5:7]}/{metricas['data_emissao'][:4]} · "
+                    f"{metricas.get('dias_desde_emissao', '?')} dias desde a emissão · "
+                    f"{'**dentro**' if analise.status.value == 'CONFORME' else '**fora**'} "
+                    f"do prazo de {metricas.get('prazo_validade_dias')} dias")
+            if analise.trecho_referencia:
+                st.markdown(f"> 📄 *Trecho do final do documento:* "
+                            f"\"{analise.trecho_referencia}\"")
 
-# ------------------------- ④ Dados estruturados (JSON) ----------------------
-with st.expander("④ Dados extraídos do formulário (JSON estruturado — Fase 1)"):
-    st.json(dados)
+    # --------------------------------------------------------------
+    # AUDITORIA TÉCNICA (TRs)
+    # --------------------------------------------------------------
+    with st.expander("📐 Auditoria técnica — Termos de Referência validados",
+                     expanded=any(t.itens_reprovados for t in tecnicos)):
+        gab = st.session_state.get("processo", {}).get("gabarito") or {}
+        if not tecnicos:
+            st.info("Nenhum laudo (.pdf/.txt) submetido para auditoria técnica.")
+        for resultado in tecnicos:
+            emoji = emoji_status_tecnico(resultado.status)
+            cab = (f"{emoji} {resultado.documento_analisado} · {resultado.norma_tr} · "
+                   f"**{resultado.status.value}**")
+            with st.container(border=True):
+                st.markdown(cab)
+                st.caption(f"Motor da análise: {resultado.origem.value}")
+                if resultado.itens_reprovados:
+                    st.error("\n".join(f"**✗** {item}" for item in resultado.itens_reprovados))
+                if resultado.trecho_referencia:
+                    st.markdown(f"> 📄 *Trecho de referência do laudo:* "
+                                f"\"{resultado.trecho_referencia}\"")
+                with st.expander("Ver métricas extraídas"):
+                    st.json(resultado.metricas)
 
-st.divider()
+    # --------------------------------------------------------------
+    # ADMINISTRATIVO + TAXA (compactos)
+    # --------------------------------------------------------------
+    with st.expander(f"🏛️ Triagem administrativa — {admin.get('status_geral', '—')}",
+                     expanded=admin.get("status_geral") == "BLOQUEADO"):
+        resumo_admin = admin.get("resumo", {})
+        st.markdown(f"Checklist: **{resumo_admin.get('total_ok', 0)}/"
+                    f"{resumo_admin.get('total_ok', 0) + resumo_admin.get('total_pendentes', 0)}** "
+                    f"documentos OK · bloqueios: "
+                    f"**{len(admin.get('bloqueios') or [])}**")
+        for bloqueio in admin.get("bloqueios") or []:
+            st.error(f"🚫 {bloqueio}")
+        for pend in admin.get("documentos_pendentes") or []:
+            if isinstance(pend, dict):
+                st.warning(f"🟡 {pend.get('documento')} — {pend.get('justificativa', '')}")
+            else:
+                st.warning(f"🟡 {pend}")
 
-# ------------------------- Aprovação humana + Ofício ------------------------
-st.subheader("✍️ Aprovação humana e geração do ofício")
-col_com, col_doc = st.columns([2, 1.4])
+    if financeiro:
+        with st.expander("💰 Taxa de licenciamento (URMs)"):
+            st.markdown(f"**Total: {_fmt_urm(financeiro.get('total_urm'))} URMs** "
+                        f"({financeiro.get('tipo_licenca')} · grupo "
+                        f"{financeiro.get('grupo_atividade')})")
+            st.caption(f"📚 Fonte: {financeiro.get('fonte_tabela')}")
+            if financeiro.get("regra_aplicada"):
+                st.caption(f"Regra: {financeiro['regra_aplicada']}")
+            for aviso in financeiro.get("avisos") or []:
+                st.warning(f"⚠️ {aviso}")
 
-with col_com:
-    comentarios = st.text_area(
-        "Comentários do analista (editáveis — entram no ofício)",
-        value=st.session_state.comentarios, height=200, key="caixa_comentarios")
-    st.session_state.comentarios = comentarios
-    revisado = st.checkbox("Confirmo que revisei as pendências e os comentários acima")
+    with st.expander("④ Dados extraídos do formulário (JSON estruturado — Fase 1)"):
+        st.json(dados)
 
-with col_doc:
-    st.markdown("**Minuta de Ofício de Complementação**")
-    st.caption("Consolida todas as pendências (administrativas + técnicas) em um "
-               "documento Word editável, com justificativas e trechos de referência.")
-    numero_oficio = st.text_input("Nº do ofício", value="042/2026")
-    prazo_dias = st.number_input("Prazo (dias)", min_value=5, max_value=180, value=30)
+    st.divider()
 
-    if revisado:
-        docx_bytes = GeradorOficios().gerar_oficio_complementacao(
-            dados_processo=dados,
-            resultado_admin=admin,
-            resultados_tecnicos=tecnicos,
-            comentarios_analista=comentarios or None,
-            numero_oficio=numero_oficio,
-            prazo_dias=int(prazo_dias),
-        )
-        st.download_button(
-            label="📄 Baixar Minuta de Ofício (.docx)",
-            data=docx_bytes,
-            file_name=f"oficio_complementacao_{numero_oficio.replace('/', '-')}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            type="primary", width="stretch")
-    else:
-        st.button("📄 Baixar Minuta de Ofício (.docx)", disabled=True,
-                  width="stretch",
-                  help="Marque a confirmação de revisão do analista para liberar o download.")
+    # --------------------------------------------------------------
+    # PARECER TÉCNICO (botão final)
+    # --------------------------------------------------------------
+    st.subheader("📄 Emissão do Parecer Técnico")
+    st.markdown("O parecer consolida **o que falta para contemplar todos os "
+                "documentos referentes a esta licença** (exigências não "
+                "apresentadas, pendências por documento e não conformidades com "
+                "os TRs).")
 
-# ------------------------- Persistência (protótipo) -------------------------
-with st.expander("💾 Persistir processo no banco de dados (Fase 2)"):
-    st.caption("Protótipo grava em SQLite local. Em produção, defina DATABASE_URL "
-               "(PostgreSQL + PostGIS) — a coluna de geometria usa SIRGAS 2000 (SRID 4674).")
-    numero_proc = st.text_input("Número do processo", value="2026/001234", key="num_proc_db")
-    if st.button("Salvar processo no banco"):
-        try:
-            engine = obter_engine()
-            with Session(engine) as sessao:
-                semear_tabela_urm(sessao, AgenteFinanceiro.MATRIZ_URM)
-            id_proc = salvar_processo(dados, admin, fin, processo["anexados"],
-                                      numero_processo=numero_proc, engine=engine)
-            st.success(f"Processo salvo com id {id_proc}.")
-        except Exception as exc:  # noqa: BLE001
-            st.error(f"Falha ao salvar: {exc}")
+    col_com, col_doc = st.columns([2, 1.4])
+    with col_com:
+        comentarios = st.text_area(
+            "Comentários do analista (entram no parecer)", height=150,
+            key="comentarios_parecer")
+        revisado = st.checkbox("Confirmo a conferência da análise acima")
+    with col_doc:
+        numero = st.text_input("Nº do parecer", value="001/2026")
+        prazo = st.number_input("Prazo para complementação (dias)", min_value=5,
+                                max_value=180, value=30)
+
+        if revisado:
+            docx_bytes = GeradorOficios().gerar_parecer_tecnico(
+                dados_processo=dados,
+                quadro_documentos=quadro,
+                resultado_admin=admin,
+                resultados_tecnicos=tecnicos,
+                arquivos_recebidos=processo.get("arquivos") or [],
+                resumo_quadro=resumo,
+                comentarios_analista=comentarios or None,
+                numero_parecer=numero,
+                prazo_dias=int(prazo))
+            st.download_button(
+                label="📄 Baixar Parecer Técnico (.docx)",
+                data=docx_bytes,
+                file_name=f"parecer_tecnico_{numero.replace('/', '-')}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                type="primary", width="stretch")
+        else:
+            st.button("📄 Baixar Parecer Técnico (.docx)", disabled=True,
+                      width="stretch",
+                      help="Marque a confirmação da conferência para liberar a emissão.")
+
+    rodape_calibracao()
+
+
+# ======================================================================
+# Roteador de etapas
+# ======================================================================
+if "etapa" not in st.session_state:
+    st.session_state.etapa = "upload"
+
+if st.session_state.etapa == "upload":
+    pagina_upload()
+else:
+    pagina_analise()
