@@ -1,6 +1,18 @@
 # Configuração do Streamlit para o dashboard de licenciamento ambiental
+#
+# [server] enableCORS/enableXSRFProtection = false:
+#   NECESSÁRIO atrás do proxy do preview (https://{porta}-{sandbox}.e2b.app).
+#   Com a proteção XSRF ativa (padrão), o POST/PUT de upload exige o par
+#   cookie `_streamlit_xsrf` + header `X-Xsrftoken`, que não sobrevive ao
+#   proxy -> "AxiosError 403 XSRF token missing or invalid" em TODO upload
+#   (html, pdf, imagem...). O CORS ativo também restringe a origem ao
+#   `browser.serverAddress` (localhost), bloqueando o upload pelo proxy.
+#   O acesso continua protegido pela sessão do preview.
 [server]
 headless = true
+enableCORS = false
+enableXsrfProtection = false   # grafia exata na 1.64 (enableXSRFProtection é inválida)
+maxUploadSize = 300          # MB - laudos/escaneamentos grandes
 
 [browser]
 gatherUsageStats = false
