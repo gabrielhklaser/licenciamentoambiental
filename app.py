@@ -363,7 +363,17 @@ def pagina_analise() -> None:
         if pleito.get("natureza"):
             origem_leitura += f" • {pleito['natureza']}"
         c2.caption(origem_leitura)
-    c3.metric("Triagem", (dados.get("status_triagem") or "—").replace("_", " ").upper())
+    # Tipo de empreendimento = CODRAM/ramo da atividade licenciado (lido do
+    # formulário); ex.: 'PARCELAMENTO DO SOLO...' com 'CODRAM 3414,40' na legenda
+    ramo_ativ = (emp.get("ramo_atividade") or "").strip()
+    codram = (emp.get("codram") or "").strip()
+    if ramo_ativ:
+        descricao_tipo = re.sub(r"^[\d.,]+\s*[-–—]\s*", "", ramo_ativ)
+        c3.metric("Tipo de empreendimento", descricao_tipo[:26])
+    else:
+        c3.metric("Tipo de empreendimento", codram or "—")
+    if codram:
+        c3.caption("CODRAM " + codram)
     # Diagnóstico do item 3: mostrado quando a marcação não foi lida OU
     # divergiu da seleção do licenciador (transparência, sem travar o fluxo)
     if not pleito.get("tipo_licenca") or pleito.get("divergencia_selecao"):
