@@ -227,7 +227,7 @@ class FormularioParser:
     # letreiros 'Licenciamento de Parcelamento ... LP, LI e LO.'
     RE_FIM_LISTAGEM = re.compile(
         r"MODELOS DE DOCUMENTOS|^OBS\b|LICENCIAMENTO DE PARCELAMENTO|"
-        r"LICENCIAMENTO DE|ANALISE DESTES DOCUMENTOS")
+        r"LICENCIAMENTO DE|ANALISE DESTES DOCUMENTOS|\(LP\)\s*,")
 
     REGEX_SUBSECOES_FASE = [
         ("RENOVACAO", re.compile(r"RENOVACAO\s+DE\s+LICENCAS")),
@@ -1352,7 +1352,15 @@ class FormularioParser:
             if tipo_licenca is None:
                 tipo_licenca = self.extrair_tipo_licenca().get("tipo_licenca")
 
-            por_fase = self._varrer_checklist_dom()
+            # PRIMÁRIO: listagem ancorada no título 'Documentos Requeridos'
+            por_fase = self._varrer_documentos_requeridos()
+            if any(por_fase.values()):
+                self.fonte_checklist = ('listagem "Documentos Requeridos" '
+                                        '(final do formulário)')
+
+            # Fallback: varredura DOM de toda a seção de documentação
+            if not any(por_fase.values()):
+                por_fase = self._varrer_checklist_dom()
 
             # Fallback 1: se o DOM não renderizou listas, tenta extração por RegEx no texto
             if not any(por_fase.values()):
@@ -1559,6 +1567,59 @@ class FormularioParser:
         except Exception as exc:  # noqa: BLE001
             self._registrar_falha("extrair_responsaveis_etapas", str(exc))
         return saida
+
+    def _varrer_documentos_requeridos(self) -> dict[str, list[str]]:
+        """ETAPA DA LISTAGEM, ancorada EXCLUSIVAMENTE no título 'Documentos
+        Requeridos' (ao final do formulário): TUDO antes do título é ignorado
+        (o corpo tem itens numerados que não são documentos, ex.: o Quadro
+        diagnóstico '1. Existe banhado?'); a cada ocorrência do título, os
+        itens são atribuídos ao tipo de licença do cabeçalho seguinte (LP,
+        LI, LO, RENOVAÇÃO, LIR, LOR). Itens: parágrafos numerados, <li> e a
+        continuação de linha da descrição; rodapés/letreiros são excluídos."""
+        por_fase: dict[str, list[str]] = {}
+        try:
+            segmentos = re.split(r"DOCUMENTOS\s+REQUERIDOS",
+                                 self._texto_original, flags=re.I)
+            if len(segmentos) <= 1:
+                return por_fase  # formulário sem o título: usar os fallbacks
+            for segmento in segmentos[1:]:
+                fase_corrente: Optional[str] = None
+                for linha in segmento.splitlines():
+                    linha = re.sub(r"\s+", " ", linha).strip()
+                    if not linha:
+                        continue
+                    n = normalizar(linha)
+                    if self.RE_FIM_LISTAGEM.search(n):
+                        continue  # rodapé/letreiro entre as listagens
+                    # item NUMERADO com fase já estabelecida é SEMPRE um
+                    # documento ('6. Declaração da viabilidade...' NÃO é
+                    # cabeçalho da espécie DECLARACAO!)
+                    if fase_corrente is not None \
+                            and re.match(r"^\d+\s*[.)]\s*\S", linha):
+                        por_fase.setdefault(fase_corrente, []).append(linha)
+                        continue
+                    sub = self._classificar_subsecao(linha)
+                    if sub:
+                        fase_corrente = sub
+                        por_fase.setdefault(sub, [])
+                        continue
+                    if fase_corrente is None:
+                        continue  # ainda antes do cabeçalho do tipo
+                    if re.match(r"^\d+\s*[.)]\s*\S", linha):
+                        por_fase.setdefault(fase_corrente, []).append(linha)
+                    elif por_fase.get(fase_corrente):
+                        anterior = por_fase[fase_corrente][-1]
+                        if anterior[-1:] in ";.":
+                            por_fase[fase_corrente].append(linha)  # item <li>
+                        else:
+                            # continuação da descrição: o Word quebra a linha
+                            # no MEIO da frase (',', '...', sem ponto e
+                            # vírgula final) - ex.: '... TR desta secretaria,'
+                            # + 'com ART de responsável técnico habilitado;'
+                            por_fase[fase_corrente][-1] += " " + linha
+        except Exception as exc:  # noqa: BLE001
+            self._registrar_falha("_varrer_documentos_requeridos", str(exc))
+        return por_fase
 
     def _varrer_checklist_dom(self) -> dict[str, list[str]]:
         """Percorre o DOM em ordem de documento: localiza a seção de documentação,

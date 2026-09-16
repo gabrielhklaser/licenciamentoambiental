@@ -947,6 +947,9 @@ def test_formulario_real_listagem_por_tipo_de_licenca():
     assert lista_lp[7].startswith("8. Estudo de Impacto de Vizinhança")
     assert "com ART de responsável técnico habilitado;" in lista_lp[7]  # continuação
     assert lista_lp[13].startswith("14. ART de profissional habilitado")
+    # item 14 LIMPO: o letreiro entre listagens ('Licença Prévia (LP), ...')
+    # NÃO é colado no fim do item
+    assert "Licença Prévia (LP)," not in lista_lp[13]
 
     li = parser.aplicar_pleito_manual("LI", "Primeira licença")
     assert len(li["documentos_exigidos"]["lista_deduplicada"]) == 14
@@ -1004,3 +1007,18 @@ def test_formulario_real_rts_43_art_sem_prefixo_cruzados():
     assert conf["Raquel Beckes"]["encontrado"] is True
     assert conf["Raquel Beckes"]["anexo"] == "projeto_urbanistico.pdf"
     assert conf["Keli Daiane Bernardes dos Santos"]["encontrado"] is False
+
+
+def test_listagem_ancorada_no_titulo_documentos_requeridos():
+    """A LISTAGEM é lida EXCLUSIVAMENTE após o título 'Documentos Requeridos'
+    (no final do formulário): itens numerados do CORPO (Quadro diagnóstico
+    '1. Existe banhado?') ficam FORA da exigência."""
+    # fluxo real: licenciador seleciona LP na Etapa 1 (sem marca legível)
+    parser = FormularioParser(str(EXEMPLOS / REAL))
+    dados = parser.aplicar_pleito_manual("LP", "Primeira licença")
+    lista = dados["documentos_exigidos"]["lista_deduplicada"]
+    assert len(lista) == 14
+    assert not any("banhado" in x.lower() for x in lista)
+    assert not any("inundação" in x.lower() for x in lista)
+    # fonte registrada como a listagem ancorada no título
+    assert "Documentos Requeridos" in dados["documentos_exigidos"]["fonte_checklist"]
