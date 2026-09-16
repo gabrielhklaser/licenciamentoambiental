@@ -905,3 +905,102 @@ def test_deduplicacao_ignora_numeracao_da_listagem():
     assert len(lista) == 2
     assert lista[0].startswith("1. Matrícula")
     assert any("2." in r["documento"] for r in removidos)
+
+
+# ==============================================================================
+# FORMULÁRIO REAL (Parcelamento/Condomínios - estrutura Maria Belle, Drive)
+# ==============================================================================
+REAL = "formulario_MARIA_BELLE_PARCELAMENTO.htm"
+
+
+def test_formulario_real_leitura_completa_do_cabecalho():
+    """Formulário real Word->HTML: Porte/Potencial ETIQUETADO ('Porte mínimo /
+    Potencial Poluidor Médio'), CODRAM '3414,40 - ...', matrícula em célula
+    vizinha ('Nº matrícula atual do imóvel'), áreas em m² e coordenadas
+    'Lat.(º): -29.691629' SIRGAS 2000 decimal."""
+    dados = _parse(REAL)
+    emp = dados["empreendimento"]
+    assert emp["porte"] == "Mínimo" and emp["potencial_poluidor"] == "Médio"
+    assert emp["codram"] == "3414,40"
+    assert emp["matricula_imovel"] == "33024"
+    assert emp["area_intervencao_ha"] == pytest.approx(0.1784)  # 1.783,75 m²
+    coords = emp["coordenadas"]
+    assert coords["formato"] == "GEOGRAFICA"
+    assert coords["latitude"] == pytest.approx(-29.691629)
+    assert coords["longitude"] == pytest.approx(-50.054433)
+    # ART lida do próprio formulário (seção 8)
+    assert dados["responsavel_tecnico"]["registro_art"] == "202613404"
+
+
+def test_formulario_real_listagem_por_tipo_de_licenca():
+    """Listagens REAIS no final do formulário (parágrafos numerados, itens
+    quebrados em várias linhas): LP=14, LI=14, LO=5; LOR=29 (33 com as
+    repetições entre fases suprimidas: 'ART de profissional' e 'Arquivo
+    KMZ/KML e DWG' aparecem 1x); RENOVAÇÃO tem listagem própria de 5 itens."""
+    parser = FormularioParser(str(EXEMPLOS / REAL))
+    parser.parse()
+
+    lp = parser.aplicar_pleito_manual("LP", "Primeira licença")
+    lista_lp = lp["documentos_exigidos"]["lista_deduplicada"]
+    assert len(lista_lp) == 14, lista_lp
+    assert lista_lp[0].startswith("1. Diretrizes Urbanísticas")
+    assert lista_lp[7].startswith("8. Estudo de Impacto de Vizinhança")
+    assert "com ART de responsável técnico habilitado;" in lista_lp[7]  # continuação
+    assert lista_lp[13].startswith("14. ART de profissional habilitado")
+
+    li = parser.aplicar_pleito_manual("LI", "Primeira licença")
+    assert len(li["documentos_exigidos"]["lista_deduplicada"]) == 14
+    assert li["documentos_exigidos"]["lista_deduplicada"][0].startswith(
+        "1. Projeto de instalação do abastecimento")
+
+    lo = parser.aplicar_pleito_manual("LO", "Primeira licença")
+    assert len(lo["documentos_exigidos"]["lista_deduplicada"]) == 5
+
+    lor = parser.aplicar_pleito_manual("LOR", "Primeira licença")
+    lista_lor = lor["documentos_exigidos"]["lista_deduplicada"]
+    assert len(lista_lor) == 29  # 14 + 14 + 5 - 4 repetições suprimidas
+    assert sum(1 for x in lista_lor if "ART de profissional habilitado" in x) == 1
+    assert sum(1 for x in lista_lor if "KMZ/KML e DWG" in x) == 1
+
+    ren = parser.aplicar_pleito_manual("LO", "Renovação")
+    lista_ren = ren["documentos_exigidos"]["lista_deduplicada"]
+    assert len(lista_ren) == 5
+    assert lista_ren[0].startswith("1. Cópia da licença a ser renovada")
+
+
+def test_formulario_real_taxa_tabela_d_parcelamento():
+    """Taxa do parcelamento: TABELA D pela área de intervenção (1.783,75 m² =
+    0,1784 ha -> faixa 0 a 5 ha) => LP 1.290,70 URM."""
+    # fluxo real: o licenciador SELECIONA LP na Etapa 1 (formulário sem
+    # marca legível na seção 3 -> o pleito vem da seleção)
+    parser = FormularioParser(str(EXEMPLOS / REAL))
+    dados = parser.aplicar_pleito_manual("LP", "Primeira licença")
+    fin = AgenteFinanceiro().calcular_do_parser(dados)
+    assert fin["total_urm"] == pytest.approx(1290.70)
+    assert fin["composicao_fases"] == {"LP": 1290.70}
+
+
+def test_formulario_real_rts_43_art_sem_prefixo_cruzados():
+    """Seção 4.3 real: ART vem SEM prefixo na tabela ('17246618') - leitura
+    posicional pelo cabeçalho; RTs cruzadas com os documentos apresentados."""
+    dados = _parse(REAL)
+    rts = dados["responsaveis_etapas"]
+    nomes = [r["nome"] for r in rts]
+    assert "Raquel Beckes" in nomes
+    raquel = next(r for r in rts if r["nome"] == "Raquel Beckes")
+    assert raquel["art_rtt"] == "ART 17246618"
+    assert raquel["registro"] == "A67154-1"
+    assert "urban" in (raquel["etapa"] or "").lower()
+    assert sum(1 for r in rts if r["nome"]) == 4  # linhas vazias ignoradas
+
+    texto_urbanistico = ("Projeto Urbanístico do Loteamento\n"
+                         "Responsável Técnica: Raquel Beckes, Registro CAU A67154-1, "
+                         "ART 17246618")
+    anexos = ["projeto_urbanistico.pdf", "inventario_fauna.pdf"]
+    textos = {anexos[0]: texto_urbanistico,
+              anexos[1]: "Inventário de fauna - ART 99999999 de outro profissional"}
+    resultado = AgenteAdministrativo().auditar(dados, anexos, textos_anexados=textos)
+    conf = {c["profissional"]: c for c in resultado["conferencia_responsaveis"]}
+    assert conf["Raquel Beckes"]["encontrado"] is True
+    assert conf["Raquel Beckes"]["anexo"] == "projeto_urbanistico.pdf"
+    assert conf["Keli Daiane Bernardes dos Santos"]["encontrado"] is False

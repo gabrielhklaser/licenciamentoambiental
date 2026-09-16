@@ -134,7 +134,7 @@ class FormularioParser:
                       "AREA UTIL DO EMPREENDIMENTO", "AREA DE INTERVENCAO (HA)",
                       "AREA TOTAL DE INTERVENCAO", "AREA DA INTERVENCAO",
                       "AREA UTIL TOTAL"],
-        "matricula_imovel": ["MATRICULA DO IMOVEL", "MATRICULA IMOVEL", "N. DA MATRICULA",
+        "matricula_imovel": ["MATRICULA ATUAL DO IMOVEL", "MATRICULA DO IMOVEL", "MATRICULA IMOVEL", "N. DA MATRICULA",
                              "MATRICULA (CARTORIO DE REGISTRO DE IMOVEIS)", "MATRICULA GERAL"],
         "endereco_empreendimento": ["ENDERECO DO EMPREENDIMENTO", "LOCALIZACAO DO EMPREENDIMENTO",
                                     "ENDERECO/LOCALIZACAO"],
@@ -168,8 +168,10 @@ class FormularioParser:
         "matricula": re.compile(
             r"MATRICULA\s*(?:DO\s+IM[ÓO]VEL|GERAL|N[ºo°.]*)?\s*[:\-]?\s*([\d][\d.\-/]{0,20})", re.I
         ),
-        "latitude_grau_decimal": re.compile(r"LAT(?:ITUDE)?\s*[:=]?\s*(-?\d{1,2}[.,]\d{2,8})", re.I),
-        "longitude_grau_decimal": re.compile(r"LON(?:GITUDE|G)?\s*[:=]?\s*(-?\d{1,3}[.,]\d{2,8})", re.I),
+        "latitude_grau_decimal": re.compile(
+            r"LAT(?:ITUDE)?[.()ºoO°\s]*[:=]?\s*(-?\d{1,2}[.,]\d{2,8})", re.I),
+        "longitude_grau_decimal": re.compile(
+            r"LON(?:GITUDE|G)?[.()ºoO°\s]*[:=]?\s*(-?\d{1,3}[.,]\d{2,8})", re.I),
         "latitude_gms": re.compile(
             r"LAT(?:ITUDE)?\s*[:=]?\s*(\d{1,2})[ºo°]\s*(\d{1,2})['′]\s*([\d.,]+)[\"″]?\s*([SsNn])?", re.I
         ),
@@ -220,7 +222,15 @@ class FormularioParser:
     )
 
     # Cabeçalhos de sub-seção por fase dentro do checklist (ordem de prioridade)
+    # linhas de rodapé das listagens reais (NUNCA são continuação de item):
+    # '*Modelos de documentos disponíveis...', 'OBS.: A análise...', e os
+    # letreiros 'Licenciamento de Parcelamento ... LP, LI e LO.'
+    RE_FIM_LISTAGEM = re.compile(
+        r"MODELOS DE DOCUMENTOS|^OBS\b|LICENCIAMENTO DE PARCELAMENTO|"
+        r"LICENCIAMENTO DE|ANALISE DESTES DOCUMENTOS")
+
     REGEX_SUBSECOES_FASE = [
+        ("RENOVACAO", re.compile(r"RENOVACAO\s+DE\s+LICENCAS")),
         ("LOR", re.compile(r"LICENCA DE OPERACAO E REGULARIZACAO|\(LOR\)|PARA LOR")),
         ("LIR", re.compile(r"LICENCA DE INSTALACAO E REGULARIZACAO|\(LIR\)|PARA LIR")),
         ("LP", re.compile(r"LICENCA PREVIA|\(LP\)|PARA LP")),
@@ -269,6 +279,10 @@ class FormularioParser:
     # Porte/Potencial combinados num único campo: 'Pequeno/Baixo'
     RE_PORTE_POTENCIAL = re.compile(
         r"\b(MINIMO|PEQUENO|MEDIO|GRANDE|EXCEPCIONAL)\s*/\s*(BAIXO|MEDIO|ALTO)\b")
+    # variante do formulário real: 'Porte mínimo / Potencial Poluidor Médio'
+    RE_PORTE_ETIQUETADO = re.compile(
+        r"PORTE\s+(MINIMO|PEQUENO|MEDIO|GRANDE|EXCEPCIONAL)"
+        r"[^\n]{0,40}?POLUIDOR\s+(BAIXO|MEDIO|ALTO)")
 
     # Formulários oficiais conhecidos (pacote SEMA): detecção pelo título/texto
     # para escolher o checklist oficial específico de config/checklists_oficiais.json
@@ -405,13 +419,32 @@ class FormularioParser:
             for rotulo, valor in self._mapa_rotulos.items():
                 if rotulo.startswith(chave_norm) and valor.strip():
                     return valor.strip()
+        # 2b) rótulo que CONTÉM a chave ('Ramo de atividade (CODRAM)' contém
+        # 'CODRAM'; 'Nº matrícula atual do imóvel' contém 'MATRICULA ATUAL...')
+        for chave in chaves:
+            chave_norm = normalizar(chave)
+            if len(chave_norm) < 6:
+                continue  # chaves curtas gerariam falso positivo
+            for rotulo, valor in self._mapa_rotulos.items():
+                if chave_norm in rotulo and valor.strip():
+                    return valor.strip()
         # 3) Busca no texto plano: 'ROTULO: valor' (linha única ou célula contínua)
         for chave in chaves:
             chave_norm = re.escape(normalizar(chave))
             padrao = re.compile(chave_norm + r"\s*[:\-]\s*([^\n\r]{1,200})", re.I)
             achou = padrao.search(self._texto_original)
-            if achou:
+            if achou and achou.group(1).strip():
                 return achou.group(1).strip()
+            # 3b) valor na LINHA SEGUINTE (células vizinhas viram linhas no
+            # get_text - formulários reais em tabela 2 colunas)
+            padrao2 = re.compile(
+                chave_norm + r"\s*[:\-]?\s*\n\s*([^\n\r:]{1,200})", re.I)
+            achou2 = padrao2.search(self._texto_original)
+            if achou2:
+                candidato = achou2.group(1).strip()
+                # valor não pode ser o título da próxima seção numerada
+                if candidato and not re.match(r"^\d+\s*[.)]\s+\S", candidato):
+                    return candidato
         # 4) Busca por padrão RegEx específico (último recurso)
         if padrao_regex is not None:
             achou = padrao_regex.search(self._texto_original)
@@ -535,9 +568,26 @@ class FormularioParser:
             if saida["latitude"] is None or saida["longitude"] is None:
                 lat_dec = self.REGEX["latitude_grau_decimal"].search(texto_busca)
                 lon_dec = self.REGEX["longitude_grau_decimal"].search(texto_busca)
+                if (lat_dec is None or lon_dec is None) and bruto:
+                    # rótulo capturado pode conter só uma das coordenadas:
+                    # complementa com o texto integral do formulário
+                    lat_dec = lat_dec or self.REGEX["latitude_grau_decimal"].search(
+                        self._texto_original)
+                    lon_dec = lon_dec or self.REGEX["longitude_grau_decimal"].search(
+                        self._texto_original)
+                def _grau_decimal(txt: str):
+                    """Grau decimal SEMPRE com '.' decimal (SIRGAS 2000) -
+                    NÃO usar para_float, que trata ponto como milhar."""
+                    try:
+                        return float(str(txt).replace(",", "."))
+                    except (TypeError, ValueError):
+                        return None
+
                 if lat_dec and lon_dec:
-                    saida["latitude"] = _arredondar(para_float(lat_dec.group(1)), 7)
-                    saida["longitude"] = _arredondar(para_float(lon_dec.group(1)), 7)
+                    saida["latitude"] = _arredondar(
+                        _grau_decimal(lat_dec.group(1)), 7)
+                    saida["longitude"] = _arredondar(
+                        _grau_decimal(lon_dec.group(1)), 7)
                 else:
                     lat_gms = self.REGEX["latitude_gms"].search(texto_busca)
                     lon_gms = self.REGEX["longitude_gms"].search(texto_busca)
@@ -572,7 +622,13 @@ class FormularioParser:
         if not achou:
             return None
         valor = para_float(achou.group(1))
-        unidade = (achou.group(2) or "ha").lower()
+        unidade = (achou.group(2) or "").lower()
+        if not unidade and re.search(r"M\s*2?\b|M\s*[²²]", normalizar(bruto)):
+            # a linha informa m² em outro ponto (ex.: '1.783,75m² (área útil
+            # total: 3.245,49)'): números sem unidade herdam m², nunca ha
+            unidade = "m2"
+        if not unidade:
+            unidade = "ha"
         if valor is not None and unidade in ("m2", "m²", "m\xb2"):
             valor = round(valor / 10000.0, 4)  # converte m² -> ha
         return valor
@@ -589,16 +645,24 @@ class FormularioParser:
             resultado["nome_empreendimento"] = self._buscar_valor(self.ROTULOS["nome_empreendimento"])
             resultado["ramo_atividade"] = self._buscar_valor(self.ROTULOS["ramo_atividade"])
             codram = self._buscar_valor(self.ROTULOS["codram"], self.REGEX["codram"])
+            if not codram:  # rótulo pode existir com formato fora do padrão
+                codram = self._buscar_valor(self.ROTULOS["codram"])
             if codram:
                 achou = self.REGEX["codram"].search(codram)
-                resultado["codram"] = (achou.group(1).strip(" .-") if achou else codram.strip(" .-"))
+                if achou:
+                    resultado["codram"] = achou.group(1).strip(" .-")
+                else:
+                    achou2 = re.match(r"\s*(\d{3,4}[.,]\d{2})\s*[-–—]", codram)
+                    resultado["codram"] = (achou2.group(1) if achou2
+                                           else codram.strip(" .-"))
 
             # Porte (Mínimo, Pequeno, Médio, Grande, Excepcional)
             # Formulários oficiais usam campo COMBINADO 'Porte/Potencial
             # Poluidor: Pequeno/Baixo' -> divide nos dois campos
             bruto_porte = self._buscar_valor(self.ROTULOS["porte"])
             if bruto_porte:
-                combinado = self.RE_PORTE_POTENCIAL.search(normalizar(bruto_porte))
+                combinado = (self.RE_PORTE_POTENCIAL.search(normalizar(bruto_porte))
+                             or self.RE_PORTE_ETIQUETADO.search(normalizar(bruto_porte)))
                 if combinado:
                     resultado["porte"] = self.ROTULO_AMIGAVEL[combinado.group(1)]
                     resultado["potencial_poluidor"] = self.ROTULO_AMIGAVEL[combinado.group(2)]
@@ -1370,17 +1434,65 @@ class FormularioParser:
         return saida
 
     def extrair_responsaveis_etapas(self) -> list[dict[str, Any]]:
-        """Seção 4.3 ('Existem demais responsáveis técnicos de diferentes
-        etapas?'): extrai cada profissional com nome, registro (CREA/CAU),
-        ART/RTT e etapa. Esses profissionais devem ser CONFERIDOS nos
-        documentos apresentados (nº da ART/RTT + nome/registro batendo)."""
+        """Seção 4.3 ('demais responsáveis técnicos de diferentes etapas').
+
+        Duas formas suportadas (dupla checagem):
+          a) tabela COM cabeçalho ('Tipo de projeto | Responsável técnico |
+             Nº registro | ART') - leitura POSICIONAL; o valor da ART vem SEM
+             prefixo (ex.: '17246618') e é rotulado como ART (ou RTT);
+          b) texto/tabela com registros inline ('RTT 55210098745').
+        Estes profissionais são CRUZADOS com os documentos apresentados.
+        """
         saida: list[dict[str, Any]] = []
         try:
+            # ---- (a) tabela com cabeçalho ART + Responsável --------------
+            if self.soup:
+                for tabela in self.soup.find_all("table"):
+                    linhas = tabela.find_all("tr")
+                    if len(linhas) < 2:
+                        continue
+                    cab = [normalizar(c.get_text(" ", strip=True)).upper()
+                           for c in linhas[0].find_all(["td", "th"])]
+                    if not any(c.startswith("ART") for c in cab):
+                        continue
+                    if not any("RESPONSAVEL" in c for c in cab):
+                        continue
+                    i_etapa = next((i for i, c in enumerate(cab)
+                                    if "TIPO" in c or "ETAPA" in c), 0)
+                    i_nome = next((i for i, c in enumerate(cab)
+                                   if "RESPONSAVEL" in c), None)
+                    i_reg = next((i for i, c in enumerate(cab)
+                                  if "REGISTRO" in c), None)
+                    i_art = next((i for i, c in enumerate(cab)
+                                  if c.startswith("ART")), None)
+                    prefixo = ("RTT" if i_art is not None
+                               and "RTT" in cab[i_art] else "ART")
+                    for tr in linhas[1:]:
+                        celulas = [c.get_text(" ", strip=True)
+                                   for c in tr.find_all(["td", "th"])]
+
+                        def _val(i, celulas=celulas):
+                            return (celulas[i].strip()
+                                    if i is not None and i < len(celulas) else "")
+
+                        nome, registro, art = _val(i_nome), _val(i_reg), _val(i_art)
+                        if not nome and not art:
+                            continue  # linha vazia ('Execução da obra', etc.)
+                        saida.append({
+                            "nome": nome,
+                            "registro": registro or None,
+                            "art_rtt": (f"{prefixo} {art}" if art else None),
+                            "etapa": _val(i_etapa),
+                        })
+                    if saida:
+                        return saida
+
+            # ---- (b) registros inline 'ART/RTT NNNN' ----------------------
             re_ancora = re.compile(
                 r"DEMAIS\s+RESPONSAVEIS|RESPONSAVEIS\s+TECNICOS\s+DE\s+"
                 r"DIFERENTES\s+ETAPAS|OUTROS\s+RESPONSAVEIS", re.I)
             re_art = re.compile(r"\b(ART|RTT)\s*n?[ºo°.]?\s*([\w./\-]{5,})", re.I)
-            re_reg = re.compile(r"\b(CREA|CAU)\s*n?[ºo°.]?\s*([\w./\-]{4,})", re.I)
+            re_reg = re.compile(r"\b(CREA|CAU|CRBI)\s*n?[ºo°.]?\s*([\w./\-]{4,})", re.I)
             ancora = None
             if self.soup:
                 for tag in self.soup.find_all(["h1", "h2", "h3", "h4", "h5",
@@ -1410,7 +1522,7 @@ class FormularioParser:
                             continue
                         if re.search(r"ETAPA|LICEN|PROJETO|ESTUDO|LAUDO|OBRA|"
                                      r"SONDAGEM|FAUNA|VEGETAL|FLORESTAL|"
-                                     r"RESPONSAVEL", normalizar(celula)):
+                                     r"RESPONSAVEL|RESIDUO", normalizar(celula)):
                             etapa = celula
                             break
                     saida.append({
@@ -1420,8 +1532,7 @@ class FormularioParser:
                         "art_rtt": f"{m_art.group(1).upper()} {m_art.group(2)}",
                         "etapa": etapa,
                     })
-            # fallback no texto (seção 4.3 sem tabela): linhas com ART/RTT
-            if not saida:
+            if not saida:  # último recurso: linhas do texto na seção 4.3
                 em_secao = False
                 for linha in self._texto_original.splitlines():
                     linha = linha.strip()
@@ -1433,7 +1544,7 @@ class FormularioParser:
                     if em_secao:
                         if (re.match(r"^\d+\s*[.)]\s+\S", linha)
                                 and not re_art.search(linha)):
-                            break  # próxima seção numerada do formulário
+                            break
                         m_art = re_art.search(linha)
                         if m_art:
                             m_reg = re_reg.search(linha)
@@ -1485,11 +1596,24 @@ class FormularioParser:
                             texto_item = f"{irmaos.index(tag) + 1}. {texto_item}"
                         por_fase.setdefault(fase_corrente, []).append(texto_item)
             else:
+                # item NUMERADO ('1. Diretrizes...', '6. Declaração da
+                # viabilidade...') é SEMPRE um documento - checar ANTES da
+                # classificação de fase ('Declaração...' viraria cabeçalho!)
+                if fase_corrente and re.match(r"^\d+\s*[.)]\s*\S", texto):
+                    por_fase.setdefault(fase_corrente, []).append(
+                        re.sub(r"\s+", " ", texto).strip())
+                    continue
                 subsecao = self._classificar_subsecao(texto)
                 if subsecao:
                     fase_corrente = subsecao
                 elif self.REGEX_SECAO_DOCS.search(t_norm):
                     fase_corrente = fase_corrente  # novo bloco da mesma seção
+                elif fase_corrente and por_fase.get(fase_corrente) \
+                        and not self.RE_FIM_LISTAGEM.search(t_norm):
+                    # continuação do item anterior (quebra de linha no meio
+                    # da descrição do documento)
+                    por_fase[fase_corrente][-1] += " " + re.sub(
+                        r"\s+", " ", texto).strip()
         return por_fase
 
     def _varrer_checklist_regex(self) -> dict[str, list[str]]:
@@ -1506,6 +1630,10 @@ class FormularioParser:
             if not secao_iniciada:
                 if self.REGEX_SECAO_DOCS.search(t_norm):
                     secao_iniciada = True
+                continue
+            if secao_iniciada and fase_corrente \
+                    and re.match(r"^\d+\s*[.)]\s*\S", linha):
+                por_fase.setdefault(fase_corrente, []).append(linha.strip())
                 continue
             subsecao = self._classificar_subsecao(linha)
             if subsecao:
@@ -1656,8 +1784,17 @@ class FormularioParser:
                 self._registrar_falha("aplicar_pleito_manual", msg)
             else:
                 pleito.pop("divergencia_selecao", None)
-            self.dados["documentos_exigidos"] = self.extrair_documentos_exigidos(
-                tipo_licenca=tipo)
+            docs = self.extrair_documentos_exigidos(tipo_licenca=tipo)
+            # RENOVAÇÃO tem listagem PRÓPRIA no formulário ('Renovação de
+            # Licenças'), independente da fase (LP/LI/LO)
+            if natureza == "Renovação" and "RENOVACAO" in docs.get("por_fase", {}):
+                itens = docs["por_fase"]["RENOVACAO"]
+                dedup, remov = self._deduplicar_documentos(itens)
+                docs["lista_deduplicada"] = dedup
+                docs["estatisticas"]["total_bruto"] = len(itens)
+                docs["estatisticas"]["total_deduplicado"] = len(dedup)
+                docs["fonte_checklist"] += " | listagem de RENOVAÇÃO de licenças"
+            self.dados["documentos_exigidos"] = docs
         except Exception as exc:  # noqa: BLE001
             self._registrar_falha("aplicar_pleito_manual", str(exc))
         return self.dados
