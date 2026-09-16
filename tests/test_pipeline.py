@@ -735,3 +735,55 @@ def test_painel_lista_simples_mostra_lp_e_taxa():
     metricas = {m.label: m.value for m in at.metric}
     assert metricas.get("Licença pleiteada") == "LP", metricas
     assert metricas.get("Taxa (URMs)") == "72,10", metricas
+
+
+# ==============================================================================
+# OUTROS MEIOS de leitura: HTML bruto com inputs mapeados + confirmação manual
+# ==============================================================================
+def test_leitura_html_bruto_com_inputs_de_formulario():
+    """MEIO ALTERNATIVO: quando get_text não entrega símbolo algum (controles
+    <input> do Word), o parser reconstrói a seção do HTML BRUTO mapeando cada
+    input para seu símbolo (marcado->'☒', vazio->'○') e reattacha ao rótulo."""
+    html = ("<html><body><h2>3. MOTIVO DO ENCAMINHAMENTO À SEMA</h2><div>"
+            "<input type=\"checkbox\"><span>Licença Única</span><br>"
+            "<input type=\"checkbox\" checked><span>Licença Prévia</span><br>"
+            "<input type=\"checkbox\"><span>Licença de Instalação</span><br>"
+            "<input type=\"checkbox\"><span>Licença de Operação</span></div>"
+            "<h2>4. DOCUMENTAÇÃO</h2></body></html>")
+    parser = FormularioParser(conteudo_html=html)
+    sinteticas = parser._linhas_da_secao_em_texto_sintetico()
+    assert "☒ Licença Prévia" in sinteticas, sinteticas
+    dados = parser.gerar_json()
+    assert dados["pleito"]["tipo_licenca"] == "LP", dados["pleito"]
+
+
+def test_confirmacao_manual_destrava_o_fluxo():
+    """ÚLTIMO MEIO (humano no circuito): formulário cuja marca NÃO sobreviveu
+    -> painel mostra '—', o licenciador confirma o tipo (LP) e o sistema
+    recalcula listagem, taxa e auditoria na hora."""
+    from streamlit.testing.v1 import AppTest
+    at = AppTest.from_file(str(RAIZ / "app.py"), default_timeout=180)
+    at.run()
+    assert not at.exception
+    sem_marca = (EXEMPLOS / "formulario_MOTIVO_sem_marca.htm").read_bytes()
+    at.file_uploader[0].set_value(
+        [("formulario_sem_marca.htm", sem_marca, "text/html")])
+    at.run()
+    assert not at.exception
+    [b for b in at.button if "Analisar" in b.label][0].click()
+    at.run()
+    assert not at.exception
+    metricas = {m.label: m.value for m in at.metric}
+    assert metricas.get("Licença pleiteada") == "—", metricas
+
+    # licenciador confirma LP no painel
+    radios = [r for r in at.radio]
+    radios[0].set_value("LP")           # tipo de licença
+    [b for b in at.button if "Confirmar e recalcular" in b.label][0].click()
+    at.run()
+    assert not at.exception, [e.value[:300] for e in at.exception]
+    metricas = {m.label: m.value for m in at.metric}
+    assert metricas.get("Licença pleiteada") == "LP", metricas
+    assert metricas.get("Taxa (URMs)") == "72,10", metricas
+    captions = " | ".join(c.value for c in at.caption)
+    assert "confirmado manualmente" in captions, captions

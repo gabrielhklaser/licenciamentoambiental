@@ -26,6 +26,7 @@ sem interromper o processamento.
 
 from __future__ import annotations
 
+import html as html_mod
 import json
 import logging
 import re
@@ -878,6 +879,55 @@ class FormularioParser:
             saida.append(pendente)
         return saida
 
+    def _linhas_da_secao_em_texto_sintetico(self) -> list[str]:
+        """OUTRO MEIO de leitura (independente do get_text): reconstrói o texto
+        da seção do motivo a partir do HTML BRUTO, mapeando cada controle de
+        formulário para o seu símbolo (marcado -> '☒', vazio -> '○') e
+        descartando as demais tags. Funciona mesmo quando a extração de texto
+        separa o símbolo do rótulo ou reordena células/spans do Word."""
+        saida: list[str] = []
+        try:
+            if not self.soup:
+                return saida
+            ancora = None
+            for tag in self.soup.find_all(["h1", "h2", "h3", "h4", "h5", "strong",
+                                           "b", "p", "legend", "td", "th"]):
+                texto = tag.get_text(" ", strip=True)
+                if texto and self.REGEX_SECAO_PLEITO.search(normalizar(texto)):
+                    ancora = tag
+                    break
+            for contêiner in (self._coletar_secao_da_ancora(ancora) if ancora else []):
+                bruto = str(contêiner)
+                # controles de formulário viram símbolos NO LUGAR correto
+                bruto = re.sub(
+                    r"<input[^>]*type=[\"']?(?:checkbox|radio)[\"']?[^>]*>",
+                    lambda m: "☒" if re.search(r"\bchecked\b", m.group(0), re.I)
+                    else "○",
+                    bruto, flags=re.I)
+                bruto = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ",
+                               bruto, flags=re.S | re.I)
+                bruto = re.sub(r"<[^>]+>", "\n", bruto)
+                bruto = html_mod.unescape(bruto)
+                for linha in bruto.splitlines():
+                    linha = re.sub(r"\s+", " ", linha).strip()
+                    if linha:
+                        saida.append(linha)
+        except Exception as exc:  # noqa: BLE001
+            self._registrar_falha("_linhas_da_secao_em_texto_sintetico", str(exc))
+            return saida
+        # reattach: símbolo isolado ('○', '☒', '( X )'...) cola no rótulo seguinte
+        mescladas: list[str] = []
+        pendente = ""
+        for linha in saida:
+            if self.RE_SIMBOLO_SOZINHO.match(linha) or linha == "○":
+                pendente = f"{pendente} {linha}".strip()
+                continue
+            mescladas.append(f"{pendente} {linha}".strip() if pendente else linha)
+            pendente = ""
+        if pendente:
+            mescladas.append(pendente)
+        return mescladas
+
     def _detectar_pleito_por_marcacao(self) -> Optional[dict[str, Any]]:
         """Lê qual opção está MARCADA na seção do MOTIVO DO ENCAMINHAMENTO.
 
@@ -957,9 +1007,11 @@ class FormularioParser:
                                 "marca": marca_token})
 
             # ---- (c) TEXTO: marcadores afirmativos junto ao rótulo ------
-            # (linhas com o símbolo REATTACHADO ao rótulo - spans do Word)
+            # (linhas com o símbolo REATTACHADO ao rótulo - spans do Word) +
+            # OUTRO MEIO: linhas sintetizadas do HTML bruto (inputs mapeados)
             linhas_secao = self._linhas_opcoes_pleito()
-            for linha in linhas_secao:
+            linhas_sinteticas = self._linhas_da_secao_em_texto_sintetico()
+            for linha in linhas_secao + linhas_sinteticas:
                 marcas = list(self.REGEX_MARCADOR_MARCADO.finditer(linha))
                 for i, m in enumerate(marcas):
                     fim = marcas[i + 1].start() if i + 1 < len(marcas) else len(linha)
@@ -974,6 +1026,8 @@ class FormularioParser:
 
             # ---- (d) DIFERENÇA DE SÍMBOLOS entre as linhas de opções ----
             candidatos.extend(self._candidatos_por_diferenca(linhas_secao))
+            if linhas_sinteticas:
+                candidatos.extend(self._candidatos_por_diferenca(linhas_sinteticas))
 
             return self._decidir_candidatos(candidatos)
         except Exception as exc:  # noqa: BLE001
@@ -1027,6 +1081,15 @@ class FormularioParser:
         try:
             if not candidatos:
                 return None
+            # camadas distintas que concordam (mesma sigla+marca) votam 1x
+            unicos: list[dict[str, Any]] = []
+            vistos: set[tuple[str, str]] = set()
+            for c in candidatos:
+                chave = (c["tipo_licenca"], c["marca"])
+                if chave not in vistos:
+                    vistos.add(chave)
+                    unicos.append(c)
+            candidatos = unicos
             siglas = {c["tipo_licenca"] for c in candidatos}
             if len(candidatos) == 1 or len(siglas) == 1:
                 return candidatos[0]

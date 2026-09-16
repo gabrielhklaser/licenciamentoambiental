@@ -18,6 +18,7 @@ Fluxo em DUAS ETAPAS (wizard):
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 
@@ -193,6 +194,8 @@ def executar_analise(arquivos: list) -> None:
         "extras": [e.get("nome") for e in extras],
         "resumo_quadro": resumo_quadro,
         "arquivos": nomes_anexos,
+        "textos_anexos": textos_anexos,
+        "arquivos_analise": arquivos_analise,
         "imagens": imagens,
         "exigencias": exigencias,
         "regras": {"fonte": validador.fonte_regras,
@@ -200,6 +203,48 @@ def executar_analise(arquivos: list) -> None:
                    "validade_matricula_dias": validador.matricula_validade_dias},
     }
     st.session_state.etapa = "analise"
+
+
+FASES_DO_PLEITO = {"LIR": ["LP", "LI"], "LOR": ["LP", "LI", "LO"],
+                   "LICENCA_UNICA": ["LP", "LI", "LO"]}
+
+
+def recalcular_pleito_manual() -> None:
+    """OUTRO MEIO de leitura (humano no circuito): aplica o tipo de licença
+    CONFIRMADO pelo licenciador no painel e recalcula a listagem de
+    documentos, as taxas e a auditoria administrativa com esse tipo."""
+    proc = st.session_state.get("processo") or {}
+    dados = proc.get("dados") or {}
+    manual = st.session_state.get("pleito_manual") or {}
+    if not dados or not manual.get("tipo"):
+        return
+    pleito = dados.setdefault("pleito", {})
+    pleito["tipo_licenca"] = manual["tipo"]
+    pleito["metodo_deteccao"] = "confirmado manualmente pelo licenciador"
+    fases = FASES_DO_PLEITO.get(manual["tipo"], [manual["tipo"]])
+    pleito["fases_componentes"] = fases
+    if manual.get("natureza"):
+        pleito["natureza"] = manual["natureza"]
+    # listagem oficial das fases confirmadas (deduplicada)
+    por_fase = ((Calibracao().checklists_oficiais or {})
+                .get("documentos_por_fase", {}))
+    exigencias: list[str] = []
+    vistos: set[str] = set()
+    for fase in fases:
+        for item in por_fase.get(fase, []):
+            chave = re.sub(r"\s+", " ", (item or "").strip().lower())
+            if chave and chave not in vistos:
+                vistos.add(chave)
+                exigencias.append(item)
+    proc["exigencias"] = exigencias
+    proc["financeiro"] = AgenteFinanceiro().calcular_do_parser(dados)
+    proc["admin"] = AgenteAdministrativo().auditar(
+        dados, proc.get("arquivos") or [],
+        textos_anexados=proc.get("textos_anexos") or {})
+    proc["quadro"], proc["extras"] = ValidadorDocumentos().montar_quadro(
+        exigencias, proc.get("arquivos_analise") or [], proc.get("analises") or {})
+    proc["resumo_quadro"] = ValidadorDocumentos().resumo_quadro(proc["quadro"])
+    st.session_state.processo = proc
 
 
 # ======================================================================
@@ -298,6 +343,32 @@ def pagina_analise() -> None:
             for av in (dados.get("avisos_parser") or []):
                 if "MARCADA" in av or "tipo de licença" in av:
                     st.caption("• " + av)
+            # ---- OUTRO MEIO: o licenciador confirma o tipo e o sistema
+            # recalcula listagem, taxas e auditoria com o tipo confirmado ----
+            st.markdown("---")
+            st.markdown(
+                "**Confirme você o tipo pleiteado** (lê a marcação que o "
+                "sistema não conseguiu): o quadro, as taxas e o parecer são "
+                "recalculados na hora.")
+            rotulos = {"LP": "Licença Prévia (LP)",
+                       "LI": "Licença de Instalação (LI)",
+                       "LO": "Licença de Operação (LO)",
+                       "LIR": "Licença de Instalação e Regularização (LIR)",
+                       "LOR": "Licença de Operação e Regularização (LOR)",
+                       "LICENCA_UNICA": "Licença Única"}
+            col_a, col_b = st.columns(2)
+            tipo_manual = col_a.radio("Tipo de licença", list(rotulos),
+                                      format_func=lambda k: rotulos[k])
+            natureza_manual = col_b.radio(
+                "Natureza do pleito",
+                ["Não informar", "Primeira licença", "Renovação"], index=0)
+            if st.button("✔ Confirmar e recalcular", type="primary"):
+                st.session_state.pleito_manual = {
+                    "tipo": tipo_manual,
+                    "natureza": (natureza_manual
+                                 if natureza_manual != "Não informar" else None)}
+                recalcular_pleito_manual()
+                st.rerun()
     c4.metric("Taxa (URMs)", _fmt_urm(financeiro.get("total_urm")))
     if financeiro.get("erro"):
         c4.caption(f"⚠️ {str(financeiro['erro'])[:60]}")
