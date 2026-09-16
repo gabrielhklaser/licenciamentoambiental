@@ -1118,6 +1118,12 @@ class FormularioParser:
             # GUARDA CRÍTICA: se o formulário TEM seção de marcação do pleito,
             # a varredura geral é PROIBIDA - a lista de opções cita todos os
             # tipos e produziria um falso positivo (ex.: LOR para um LP marcado).
+            # Transparência ao licenciador: guarda o TEXTO BRUTO lido na
+            # seção do motivo (exibido no painel quando o tipo não fecha)
+            if self._linhas_secao_pleito() is not None:
+                resultado["leitura_bruta_secao"] = [
+                    l.strip() for l in self._linhas_opcoes_pleito() if l.strip()][:14]
+
             if resultado["tipo_licenca"] is None:
                 secao_pleito = self._linhas_secao_pleito() is not None
                 if secao_pleito:

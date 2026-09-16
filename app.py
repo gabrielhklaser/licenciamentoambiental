@@ -283,6 +283,21 @@ def pagina_analise() -> None:
             origem_leitura += f" • {pleito['natureza']}"
         c2.caption(origem_leitura)
     c3.metric("Triagem", (dados.get("status_triagem") or "—").replace("_", " ").upper())
+    # DIAGNÓSTICO: tipo não lido -> mostra o que o sistema enxergou no item 3
+    if not pleito.get("tipo_licenca"):
+        brutas = pleito.get("leitura_bruta_secao") or []
+        with st.expander("🔍 Não consegui ler a MARCAÇÃO do item 3 "
+                         "(MOTIVO DO ENCAMINHAMENTO) - ver o que o sistema leu",
+                         expanded=True):
+            st.warning("O tipo de licença fica '—' e a taxa não é calculada "
+                       "enquanto a marcação não for lida.")
+            if brutas:
+                st.caption("Linhas lidas na seção (os símbolos de marcação "
+                           "podem não ter sobrevivido à conversão p/ HTML):")
+                st.code("\n".join(brutas) or "(seção vazia)", language=None)
+            for av in (dados.get("avisos_parser") or []):
+                if "MARCADA" in av or "tipo de licença" in av:
+                    st.caption("• " + av)
     c4.metric("Taxa (URMs)", _fmt_urm(financeiro.get("total_urm")))
     if financeiro.get("erro"):
         c4.caption(f"⚠️ {str(financeiro['erro'])[:60]}")
