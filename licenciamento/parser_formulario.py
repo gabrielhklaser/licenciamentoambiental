@@ -137,7 +137,8 @@ class FormularioParser:
         "matricula_imovel": ["MATRICULA ATUAL DO IMOVEL", "MATRICULA DO IMOVEL", "MATRICULA IMOVEL", "N. DA MATRICULA",
                              "MATRICULA (CARTORIO DE REGISTRO DE IMOVEIS)", "MATRICULA GERAL"],
         "endereco_empreendimento": ["ENDERECO DO EMPREENDIMENTO", "LOCALIZACAO DO EMPREENDIMENTO",
-                                    "ENDERECO/LOCALIZACAO"],
+                                    "ENDERECO/LOCALIZACAO", "ENDERECO",
+                                    "ENDERECO DO IMOVEL"],
         "nome_responsavel_tecnico": ["NOME DO RESPONSAVEL TECNICO", "RESPONSAVEL TECNICO (NOME)",
                                      "RESPONSAVEL TECNICO", "RESPONSAVEL TECNICO/AUTOR DO PROJETO"],
         "registro_art": ["N. DA ART", "NUMERO DA ART", "ART", "ART N.", "ART (ANOTACAO DE RESPONSABILIDADE TECNICA)",
@@ -158,8 +159,10 @@ class FormularioParser:
 
     # Padrões RegEx de captura de valores específicos (aplicados ao texto original)
     REGEX = {
+        # CNPJ PRIMEIRO (14 dígitos, com ou sem pontuação) - se o CPF vier
+        # primeiro, um CNPJ sem pontuação casaria só os 11 primeiros dígitos
         "cpf_cnpj": re.compile(
-            r"(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2})"
+            r"(\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}|\d{3}\.?\d{3}\.?\d{3}-?\d{2})"
         ),
         "codram": re.compile(r"CODRAM\s*[:\-]?\s*([0-9][0-9.\-/]{0,15})", re.I),
         "art": re.compile(
@@ -397,6 +400,14 @@ class FormularioParser:
 
         # Mapa de rótulos via DOM: percorre linhas de tabelas (tr) e pares dt/dd,
         # que são o formato típico dos formulários do órgão ambiental.
+        # PARES CÉLULA-A-CÉLULA (ordem do documento): formulários reais têm
+        # VÁRIOS pares rótulo|valor na MESMA linha (tabelas irregulares 4x4,
+        # 1x5, 1x4, 1x2...). Rótulo = célula terminando em ':'; valor = célula
+        # seguinte (não-rótulo). Se não houver célula seguinte, tenta a célula
+        # ANTERIOR (formulários em que o valor vem à esquerda do rótulo).
+        # O mapa antigo (rótulo = 1ª célula, valor = linha inteira) fica como
+        # fallback - ele JUNtava 'Endereço', 'Bairro' e 'CEP' num valor só.
+        self._pares_rotulo_valor: list[tuple[str, str]] = []
         try:
             for tr in self.soup.find_all("tr"):
                 celulas = [td.get_text(" ", strip=True) for td in tr.find_all(["td", "th"])]
@@ -404,6 +415,23 @@ class FormularioParser:
                 if len(celulas) >= 2:
                     rotulo, valor = normalizar(celulas[0]), " - ".join(celulas[1:])
                     self._mapa_rotulos.setdefault(rotulo, valor)
+                i = 0
+                while i < len(celulas):
+                    cel = celulas[i]
+                    rot = normalizar(cel).rstrip(" :;.,-")
+                    if cel.rstrip().endswith(":") and rot:
+                        valor = ""
+                        if (i + 1 < len(celulas)
+                                and not celulas[i + 1].rstrip().endswith(":")):
+                            valor = celulas[i + 1].strip()
+                            i += 1
+                        elif i > 0 and not celulas[i - 1].rstrip().endswith(":") \
+                                and len(celulas[i - 1]) <= 30:
+                            # valor na célula à ESQUERDA do rótulo (sem valor
+                            # próprio à direita; ex.: número da matrícula)
+                            valor = celulas[i - 1].strip()
+                        self._pares_rotulo_valor.append((rot, valor))
+                    i += 1
             for dt in self.soup.find_all("dt"):
                 dd = dt.find_next_sibling("dd")
                 if dd:
@@ -417,27 +445,66 @@ class FormularioParser:
     # Helpers de busca (híbrido: DOM + RegEx)
     # ------------------------------------------------------------------
     def _buscar_valor(self, chaves: list[str],
-                      padrao_regex: Optional[re.Pattern] = None) -> Optional[str]:
-        """Busca um valor por rótulo (DOM -> texto) e, opcionalmente, por RegEx."""
-        # 1) Busca exata no mapa de rótulos do DOM
+                      padrao_regex: Optional[re.Pattern] = None,
+                      ocorrencia: int = 0,
+                      apos: Optional[list[str]] = None) -> Optional[str]:
+        """Busca um valor por rótulo (pares célula-a-célula do DOM, depois
+        mapa de linha antigo, depois texto) e, opcionalmente, por RegEx.
+
+        ocorrencia: qual ocorrência do rótulo usar (0 = primeira) - ex.:
+        'Endereço' aparece na seção 1 (empreendedor) e na seção 2.
+        apos: só considera rótulos DEPOIS do rótulo-âncora indicado (escopo
+        de seção - ex.: endereço do EMPREENDIMENTO vem após 'Ramo de
+        atividade (CODRAM)').
+        """
+        # escopo: índice da primeira ocorrência da âncora
+        base = 0
+        if apos:
+            for idx, (rot, _v) in enumerate(self._pares_rotulo_valor):
+                if any(normalizar(a).rstrip(" :;.,-") in rot for a in apos):
+                    base = idx + 1
+                    break
+        pares = [(k, v) for k, v in self._pares_rotulo_valor[base:]
+                 if v.strip()]
+
+        # 1) Busca exata no mapa de rótulos do DOM (célula rótulo -> célula valor)
+        for chave in chaves:
+            chave_norm = normalizar(chave).rstrip(" :;.,-")
+            iguais = [v for k, v in pares if k == chave_norm]
+            if iguais:
+                return iguais[min(ocorrencia, len(iguais) - 1)].strip()
+        # 2) Busca por prefixo no mapa (rótulos compostos, ex.: 'PORTE DO EMPREENDIMENTO')
+        for chave in chaves:
+            chave_norm = normalizar(chave).rstrip(" :;.,-")
+            for _rotulo, valor in pares:
+                if _rotulo.startswith(chave_norm) and valor.strip():
+                    return valor.strip()
+        # 2b) rótulo que CONTÉM a chave ('Ramo de atividade (CODRAM)' contém
+        # 'CODRAM'; 'Nº matrícula atual do imóvel' contém 'MATRICULA ATUAL...')
+        for chave in chaves:
+            chave_norm = normalizar(chave).rstrip(" :;.,-")
+            if len(chave_norm) < 6:
+                continue  # chaves curtas gerariam falso positivo
+            for _rotulo, valor in pares:
+                if chave_norm in _rotulo and valor.strip():
+                    return valor.strip()
+        # 2c) mapa antigo (rótulo = 1ª célula da linha, valor = linha inteira)
+        # apenas se o par célula-a-célula não resolveu
         for chave in chaves:
             chave_norm = normalizar(chave)
             if chave_norm in self._mapa_rotulos:
                 valor = self._mapa_rotulos[chave_norm].strip()
                 if valor:
                     return valor
-        # 2) Busca por prefixo no mapa (rótulos compostos, ex.: 'PORTE DO EMPREENDIMENTO')
         for chave in chaves:
             chave_norm = normalizar(chave)
             for rotulo, valor in self._mapa_rotulos.items():
                 if rotulo.startswith(chave_norm) and valor.strip():
                     return valor.strip()
-        # 2b) rótulo que CONTÉM a chave ('Ramo de atividade (CODRAM)' contém
-        # 'CODRAM'; 'Nº matrícula atual do imóvel' contém 'MATRICULA ATUAL...')
         for chave in chaves:
             chave_norm = normalizar(chave)
             if len(chave_norm) < 6:
-                continue  # chaves curtas gerariam falso positivo
+                continue
             for rotulo, valor in self._mapa_rotulos.items():
                 if chave_norm in rotulo and valor.strip():
                     return valor.strip()
@@ -733,8 +800,15 @@ class FormularioParser:
                 achou = self.REGEX["matricula"].search(matricula)
                 resultado["matricula_imovel"] = achou.group(1).strip(" .-") if achou else matricula.strip(" .-")
 
-            resultado["endereco"] = self._buscar_valor(self.ROTULOS["endereco_empreendimento"])
-            resultado["municipio"] = self._buscar_valor(self.ROTULOS["municipio"]) or "Campo Bom"
+            # 'Endereço' e 'Município' da seção 2 vêm DEPOIS do CODRAM (a
+            # seção 1 do EMPREENDEDOR também tem Endereço/Município próprios)
+            resultado["endereco"] = self._buscar_valor(
+                self.ROTULOS["endereco_empreendimento"],
+                apos=["ramo de atividade", "codram"])
+            resultado["municipio"] = (
+                self._buscar_valor(self.ROTULOS["municipio"],
+                                   apos=["ramo de atividade", "codram"])
+                or self._buscar_valor(self.ROTULOS["municipio"]))
             resultado["coordenadas"] = self.extrair_coordenadas()
 
             if resultado["area_total_ha"] is None:

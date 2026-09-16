@@ -1272,3 +1272,51 @@ def test_art_do_responsavel_principal_conferida():
     conf2 = AgenteAdministrativo()._conferir_responsaveis_etapas(
         dados_dup, ["art_joao.pdf"], textos)
     assert len(conf2) == 1 and conf2[0]["etapa"] == "Projeto"
+
+
+# ==============================================================================
+# SEÇÕES 1 e 2 do formulário REAL (tabelas irregulares, vários pares por linha)
+# ==============================================================================
+def test_secoes_1_e_2_tabela_real_celula_a_celula():
+    """Formulário real (tabelas quebradas 4x4/1x5/1x4/1x2, vários pares
+    rótulo|valor por linha): cada campo extrai SOMENTE o seu valor - matrícula
+    '33024' sem a área, endereço da seção 2 sem 'Bairro/CEP', endereço do
+    EMPREENDEDOR (seção 1) distinto do do EMPREENDIMENTO (seção 2)."""
+    dados = _parse("formulario_MARIA_BELLE_PARCELAMENTO.htm")
+    emp = dados["empreendimento"]
+    # matrícula: só o número (não junta 'Área total de intervenção')
+    assert emp["matricula_imovel"] == "33024"
+    # endereço do EMPREENDIMENTO (seção 2, após o CODRAM) - célula única
+    assert emp["endereco"] == ("Esquina entre as RuasJosé Vargas e Alberto "
+                               "Fleck, lote 27, quadra 03, s/n")
+    assert "Bairro" not in (emp["endereco"] or "")
+    # município limpo (seção 2 não tem Município -> usa o do empreendedor)
+    assert emp["municipio"] == "Campo Bom"
+    # coordenadas: valores certos e valores_brutos LIMITADOS (nunca o HTML todo)
+    coord = emp["coordenadas"]
+    assert coord["latitude"] == -29.691629 and coord["longitude"] == -50.054433
+    brutos = coord.get("valores_brutos") or ""
+    assert len(brutos) <= 200 and "<" not in brutos
+    # campos da seção 2 intactos
+    assert emp["porte"] == "Mínimo" and emp["potencial_poluidor"] == "Médio"
+    assert emp["codram"] == "3414,40"
+    # seção 1 (EMPREENDEDOR): nome, CNPJ e o ENDEREÇO PRÓPRIO (1ª ocorrência)
+    assert dados["empreendedor"]["nome_razao_social"] == \
+        "Maria Joaquina Empreendimentos Imobiliários LTDA"
+    assert dados["empreendedor"]["cpf_cnpj"] == "43929749000120"
+    parser = FormularioParser(str(EXEMPLOS / REAL))
+    endereco_empreendedor = parser._buscar_valor(
+        parser.ROTULOS["endereco_empreendimento"])
+    assert endereco_empreendedor == "Av. Oscar Cirilo Ritzel"
+
+
+def test_valor_a_esquerda_do_rotulo():
+    """Layout em que o valor vem na célula à ESQUERDA do rótulo (print do
+    licenciador): 'Nº matrícula atual do imóvel' sem célula à direita pega o
+    número da célula anterior."""
+    html = ("<html><body><h1>LICENCIAMENTO AMBIENTAL</h1><table>"
+            "<tr><td>33024</td><td>Nº matrícula atual do imóvel:</td></tr>"
+            "</table></body></html>")
+    parser = FormularioParser(conteudo_html=html)
+    parser.parse()
+    assert parser.dados["empreendimento"]["matricula_imovel"] == "33024"
