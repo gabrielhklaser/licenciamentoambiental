@@ -75,6 +75,69 @@ class AgenteAdministrativo:
         texto = re.sub(r"[^\w\s]", " ", texto.lower())
         return re.sub(r"\s+", " ", texto).strip()
 
+    # CNPJ no texto OCR: tolera espaços quebrados e tokens colados
+    # ("CNPJ12.345.678/0001-95MATRICULA", "N. INSCRICAO 12 345 678 0001 95")
+    RE_CNPJ_TEXTO = re.compile(
+        r"\d{2}\s*[.,]?\s*\d{3}\s*[.,]?\s*\d{3}\s*[/.]?\s*\d{4}\s*-?\s*\d{2}")
+
+    @classmethod
+    def _conferir_cnpj_matricula(cls, dados_processo: dict,
+                                 anexados: list[str],
+                                 textos: dict[str, str]) -> Optional[dict]:
+        """Confere o CNPJ do empreendedor (formulário HTML) com o NÚMERO DE
+        INSCRIÇÃO da matrícula anexada (primeira linha/coluna do documento;
+        PDFs escaneados chegam aqui já com o texto extraído via OCR).
+        Status: CONFERE | DIVERGENTE | NAO_ENCONTRADO | ANEXO_NAO_LEGIVEL."""
+        try:
+            exigidos = (dados_processo.get("documentos_exigidos")
+                        .get("lista_deduplicada") or [])
+            cnpj_form = re.sub(r"\D", "",
+                               (dados_processo.get("empreendedor")
+                                .get("cpf_cnpj") or ""))
+            if len(cnpj_form) != 14:  # só CNPJ (CPF não consta na matrícula)
+                return None
+            # localiza o anexo da matrícula: 1º pelo checklist, senão pelo nome
+            anexo_mat = None
+            for exigido in exigidos:
+                if "matricula" in cls._normalizar(exigido):
+                    anexo_mat = cls._documento_estah_anexado(exigido, anexados)
+                    if anexo_mat:
+                        break
+            if not anexo_mat:
+                anexo_mat = next((a for a in anexados
+                                  if "matricul" in cls._normalizar(a)), None)
+            if not anexo_mat:
+                return None
+            texto = textos.get(anexo_mat) or ""
+            if not texto.strip():
+                return {"anexo": anexo_mat, "cnpj_formulario": cnpj_form,
+                        "cnpj_encontrado": None, "status": "ANEXO_NAO_LEGIVEL",
+                        "detalhe": ("matrícula sem texto legível (escaneada e "
+                                    "OCR indisponível) - conferir manualmente")}
+            encontrados = {re.sub(r"\D", "", m.group(0))
+                           for m in cls.RE_CNPJ_TEXTO.finditer(texto)}
+            encontrados.discard("")
+            if cnpj_form in encontrados:
+                status = "CONFERE"
+            elif encontrados:
+                status = "DIVERGENTE"
+            else:
+                status = "NAO_ENCONTRADO"
+            return {"anexo": anexo_mat, "cnpj_formulario": cnpj_form,
+                    "cnpj_encontrado": (sorted(encontrados)[0]
+                                        if encontrados else None),
+                    "status": status,
+                    "detalhe": {"CONFERE": "número de inscrição confere com "
+                                           "o formulário",
+                                "DIVERGENTE": "CNPJ da matrícula DIFERENTE "
+                                              "do formulário",
+                                "NAO_ENCONTRADO": "CNPJ não localizado no "
+                                                  "texto da matrícula"
+                                }.get(status, status)}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Falha na conferência de CNPJ: %s", exc)
+            return None
+
     def _conferir_responsaveis_etapas(self, dados_processo: dict,
                                       anexados: list[str],
                                       textos: dict[str, str]) -> list[dict[str, Any]]:
@@ -83,7 +146,22 @@ class AgenteAdministrativo:
         apresentados, com o NOME ou o REGISTRO do profissional batendo."""
         resultado: list[dict[str, Any]] = []
         try:
-            responsaveis = dados_processo.get("responsaveis_etapas") or []
+            responsaveis = list(dados_processo.get("responsaveis_etapas") or [])
+            # TAMBÉM o responsável técnico PRINCIPAL (item 14 do formulário):
+            # toda ART/RTT declarada deve ser conferida (nº + nome)
+            rt_principal = dados_processo.get("responsavel_tecnico") or {}
+            art_principal = (rt_principal.get("registro_art") or "").strip()
+            if art_principal:
+                arts_ja_listadas = {
+                    re.sub(r"\D", "", p.get("art_rtt") or "")
+                    for p in responsaveis}
+                if re.sub(r"\D", "", art_principal) not in arts_ja_listadas:
+                    responsaveis.append({
+                        "nome": rt_principal.get("nome"),
+                        "registro": rt_principal.get("registro_crea"),
+                        "art_rtt": art_principal,
+                        "etapa": "Responsável Técnico principal (item 14)",
+                    })
             for prof in responsaveis:
                 art = (prof.get("art_rtt") or "").strip()
                 m_num = re.search(r"([\w./\-]{5,})\s*$", art)
@@ -307,6 +385,11 @@ class AgenteAdministrativo:
             if anexo not in anexados_reconhecidos:
                 avisos.append(f"Anexo '{anexo}' não corresponde a nenhuma exigência do checklist.")
 
+        # 2.4) Conferência do CNPJ: nº de inscrição no anexo da MATRÍCULA
+        # (frequentemente PDF escaneado - lido via OCR) x formulário HTML
+        conferencia_cnpj = self._conferir_cnpj_matricula(
+            dados_processo, documentos_anexados, textos)
+
         # 2.5) Conferência dos profissionais das etapas (seção 4.3):
         # ART/RTT de cada responsável procurada nos documentos apresentados
         conferencia_responsaveis = self._conferir_responsaveis_etapas(
@@ -335,6 +418,7 @@ class AgenteAdministrativo:
             "documentos_pendentes": documentos_pendentes,
             "origem_ok": origem_ok,
             "conferencia_responsaveis": conferencia_responsaveis,
+            "conferencia_cnpj": conferencia_cnpj,
             "avisos": avisos,
             "resumo": {
                 "total_exigidos": len(exigidos),

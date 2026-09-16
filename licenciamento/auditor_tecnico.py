@@ -327,15 +327,14 @@ class AuditorTecnico:
         """
         try:
             if nome_arquivo.lower().endswith(".pdf"):
-                from io import BytesIO
-                from pypdf import PdfReader
-                leitor = PdfReader(BytesIO(conteudo if isinstance(conteudo, bytes)
-                                           else conteudo.encode()))
-                texto = "\n".join((pagina.extract_text() or "") for pagina in leitor.pages)
-                if len(texto.strip()) < 40:
-                    logger.warning("PDF sem camada de texto (provável digitalização) - %s",
-                                   nome_arquivo)
-                    # >>> gancho de OCR (pytesseract/pdf2image) para produção <<<
+                # LeitorPDF: texto nativo + OCR para PDFs digitalizados
+                from licenciamento.leitor_pdf import LeitorPDF
+                bruto = conteudo if isinstance(conteudo, bytes) \
+                    else conteudo.encode()
+                texto, _info = LeitorPDF.extrair(bruto)
+                if not texto.strip():
+                    logger.warning("PDF sem texto legível (escaneado e OCR "
+                                   "indisponível) - %s", nome_arquivo)
                 return texto
             return conteudo.decode("utf-8", errors="replace") if isinstance(conteudo, bytes) \
                 else str(conteudo)

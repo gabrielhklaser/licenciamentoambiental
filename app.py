@@ -546,6 +546,37 @@ def pagina_analise() -> None:
                            + " NÃO confirmada nos anexos (etapa: "
                            + etapa_txt + ").")
 
+        # Conferência do CNPJ: formulário HTML x número de inscrição na
+        # matrícula anexada (PDF escaneado lido via OCR)
+        conf_cnpj = admin.get("conferencia_cnpj")
+        if conf_cnpj:
+            status_cnpj = conf_cnpj.get("status")
+            cnpj_fmt = conf_cnpj.get("cnpj_formulario") or ""
+            if len(cnpj_fmt) == 14:
+                cnpj_fmt = (cnpj_fmt[:2] + "." + cnpj_fmt[2:5] + "."
+                            + cnpj_fmt[5:8] + "/" + cnpj_fmt[8:12] + "-"
+                            + cnpj_fmt[12:])
+            if status_cnpj == "CONFERE":
+                st.success("✅ CNPJ do formulário (" + cnpj_fmt
+                           + ") conferido no número de inscrição da matrícula `"
+                           + str(conf_cnpj.get("anexo")) + "` ("
+                           + str(conf_cnpj.get("detalhe")) + ").")
+            elif status_cnpj == "DIVERGENTE":
+                st.warning("🟡 CNPJ do formulário (" + cnpj_fmt
+                           + ") DIFERE do número de inscrição na matrícula `"
+                           + str(conf_cnpj.get("anexo")) + "` (encontrado: "
+                           + str(conf_cnpj.get("cnpj_encontrado"))
+                           + ") - conferir manualmente.")
+            elif status_cnpj == "NAO_ENCONTRADO":
+                st.warning("🟡 CNPJ (" + cnpj_fmt
+                           + ") não localizado no texto da matrícula `"
+                           + str(conf_cnpj.get("anexo"))
+                           + "` - conferir manualmente.")
+            elif status_cnpj == "ANEXO_NAO_LEGIVEL":
+                st.warning("🟡 Matrícula `" + str(conf_cnpj.get("anexo"))
+                           + "` sem texto legível (escaneada e OCR "
+                           "indisponível) - conferir o CNPJ manualmente.")
+
     if financeiro:
         with st.expander("💰 Taxa de licenciamento (URMs)"):
             st.markdown(f"**Total: {_fmt_urm(financeiro.get('total_urm'))} URMs** "

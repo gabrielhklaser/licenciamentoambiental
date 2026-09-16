@@ -127,9 +127,11 @@ class ValidadorDocumentos:
 
     @staticmethod
     def _texto_pdf(conteudo: bytes) -> str:
-        from pypdf import PdfReader
-        leitor = PdfReader(io.BytesIO(conteudo))
-        return "\n".join((p.extract_text() or "") for p in leitor.pages)
+        # LeitorPDF: texto nativo + OCR quando o PDF é escaneado (matrículas,
+        # ARTs e laudos digitalizados)
+        from licenciamento.leitor_pdf import LeitorPDF
+        texto, _info = LeitorPDF.extrair(conteudo)
+        return texto
 
     @staticmethod
     def _texto_docx(conteudo: bytes) -> str:

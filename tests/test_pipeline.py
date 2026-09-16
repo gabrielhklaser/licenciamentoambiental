@@ -1175,3 +1175,100 @@ def test_codram_nao_arrasta_runon_da_tabela():
     parser2 = FormularioParser(conteudo_html=html2)
     parser2.parse()
     assert parser2.dados["empreendimento"]["codram"] == "05.412.1-3"
+
+
+# ==============================================================================
+# PDFs ESCANEADOS (OCR) + CONFERÊNCIAS CNPJ e ART/RTT com o formulário
+# ==============================================================================
+def _pdf_escaneado(texto: str) -> bytes:
+    """Gera um PDF de IMAGEM (página escaneada simulada) com o texto pedido."""
+    import io
+    from PIL import Image, ImageDraw, ImageFont
+    img = Image.new("RGB", (1400, 400), "white")
+    d = ImageDraw.Draw(img)
+    try:
+        fonte = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40)
+    except Exception:
+        fonte = None
+    d.text((40, 160), texto, fill="black", font=fonte)
+    buffer = io.BytesIO()
+    img.save(buffer, "PDF", resolution=100)
+    return buffer.getvalue()
+
+
+def test_leitor_pdf_ocr_documento_escaneado():
+    """Matrículas/ARTs chegam como PDF de imagens: o leitor detecta a ausência
+    de camada de texto e roda OCR (texto vira legível p/ as conferências)."""
+    from licenciamento.leitor_pdf import LeitorPDF
+    if not LeitorPDF.ocr_disponivel():
+        pytest.skip("OCR (rapidocr-onnxruntime) indisponível neste ambiente")
+    import re as _re
+    pdf = _pdf_escaneado("MATRICULA 33024 CNPJ 12.345.678/0001-95")
+    texto, info = LeitorPDF.extrair(pdf)
+    assert info["metodo"] == "ocr", (texto, info)
+    assert "33024" in _re.sub(r"\D", "", texto), texto
+    # plug completo: o validador também lê o escaneado
+    from licenciamento.validador_documentos import ValidadorDocumentos
+    v = ValidadorDocumentos()
+    assert "33024" in _re.sub(r"\D", "",
+                              v.extrair_texto("matricula.pdf", pdf))
+
+
+def test_conferencia_cnpj_matricula_vs_formulario():
+    """CNPJ do formulário x NÚMERO DE INSCRIÇÃO na matrícula (1ª linha/coluna):
+    CONFERE, DIVERGENTE, NAO_ENCONTRADO, ANEXO_NAO_LEGIVEL e CPF->ignora."""
+    from licenciamento.agente_administrativo import AgenteAdministrativo
+    dados = {"empreendedor": {"cpf_cnpj": "12.345.678/0001-95"},
+             "documentos_exigidos": {"lista_deduplicada": [
+                 "Cópia da matrícula atualizada do imóvel"]}}
+
+    def conferir(texto_matricula):
+        textos = {"matricula_do_imovel.pdf": texto_matricula}
+        return AgenteAdministrativo._conferir_cnpj_matricula(
+            dados, ["matricula_do_imovel.pdf"], textos)
+
+    # OCR cola tokens: regex tolerante reconhece mesmo assim
+    r1 = conferir("Numero de Inscricao CNPJ12.345.678/0001-95MATRICULA 33024 FALHA 2")
+    assert r1["status"] == "CONFERE"  # "2" solto não pode virar CNPJ
+    # CNPJ com espaços quebrados pelo OCR
+    r2 = conferir("N. INSCRICAO 12 345 678 0001 95 - matricula 33024")
+    assert r2["status"] == "CONFERE"
+    # divergente
+    r = conferir("Inscricao CNPJ 98.765.432/0001-10 matricula 33024")
+    assert r["status"] == "DIVERGENTE" and r["cnpj_encontrado"] == "98765432000110"
+    # sem CNPJ no texto
+    r3 = conferir("Matricula 33024 proprietario joao da silva")
+    assert r3["status"] == "NAO_ENCONTRADO"
+    # anexo sem texto (escaneado e OCR indisponível)
+    r4 = conferir("")
+    assert r4["status"] == "ANEXO_NAO_LEGIVEL"
+    # formulário com CPF (11 dígitos): não há conferência de CNPJ
+    dados_cpf = {**dados, "empreendedor": {"cpf_cnpj": "123.456.789-00"}}
+    assert AgenteAdministrativo._conferir_cnpj_matricula(
+        dados_cpf, ["matricula_do_imovel.pdf"],
+        {"matricula_do_imovel.pdf": "CNPJ 12.345.678/0001-95"}) is None
+
+
+def test_art_do_responsavel_principal_conferida():
+    """TODAS as ARTs/RTTs são conferidas: o responsável principal (item 14)
+    entra na conferência nº+nome, sem duplicar quando já listado na 4.3."""
+    from licenciamento.agente_administrativo import AgenteAdministrativo
+    dados = {"responsavel_tecnico": {"nome": "João Pedro Kessler",
+                                     "registro_art": "14572403",
+                                     "registro_crea": "RS233891"},
+             "responsaveis_etapas": []}
+    textos = {"art_joao.pdf": "ART 14572403 responsavel tecnico "
+                              "JOAO PEDRO KESSLER registro RS233891"}
+    conf = AgenteAdministrativo()._conferir_responsaveis_etapas(
+        dados, ["art_joao.pdf"], textos)
+    assert len(conf) == 1
+    assert conf[0]["encontrado"] and "item 14" in conf[0]["etapa"]
+
+    # mesma ART já listada na seção 4.3: NÃO duplica
+    dados_dup = {**dados, "responsaveis_etapas": [
+        {"nome": "João Pedro Kessler", "registro": "RS233891",
+         "art_rtt": "14572403", "etapa": "Projeto"}]}
+    conf2 = AgenteAdministrativo()._conferir_responsaveis_etapas(
+        dados_dup, ["art_joao.pdf"], textos)
+    assert len(conf2) == 1 and conf2[0]["etapa"] == "Projeto"
