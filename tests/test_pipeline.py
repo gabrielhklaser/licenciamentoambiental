@@ -1320,3 +1320,88 @@ def test_valor_a_esquerda_do_rotulo():
     parser = FormularioParser(conteudo_html=html)
     parser.parse()
     assert parser.dados["empreendimento"]["matricula_imovel"] == "33024"
+
+
+# ==============================================================================
+# ART/RTT COMO DOCUMENTO PRÓPRIO (conferência × formulário) + roteador de TRs
+# ==============================================================================
+def test_art_documento_conferida_com_formulario():
+    """ART enviada como PDF (às vezes foto/scan -> OCR): NÃO recebe auditoria
+    de laudo (TR fauna etc.); é conferida - NÚMERO + NOME - com as ARTs
+    declaradas no formulário HTML (RT principal + seção 4.3). Vários ARTs por
+    processo: cada documento é conferido individualmente."""
+    from licenciamento.auditor_tecnico import AuditorTecnico
+    auditor = AuditorTecnico()
+    art_texto = ("ANOTAÇÃO DE RESPONSABILIDADE TÉCNICA - ART\n"
+                 "Nº da ART: 14572403\n"
+                 "Profissional: João Pedro Sandri Kessler\n"
+                 "Registro CREA-RS: 233891\n"
+                 "Objeto: Elaboração de laudo de fauna silvestre - "
+                 "mastofauna, avifauna e herpetofauna na área do "
+                 "empreendimento.\n")
+    arts_form = [{"numero": "202613404", "nome": "Keli Daiane Bernardes dos Santos"},
+                 {"numero": "14572403", "nome": "João Pedro Sandri Kessler"}]
+    res = auditor.auditar_documento("Art*228_assinado.pdf", art_texto,
+                                    arts_formulario=arts_form)
+    assert len(res) == 1
+    assert "Conferência ART" in res[0].norma_tr
+    assert res[0].status.value == "CONFORME", res[0].itens_reprovados
+    # ART de número NÃO declarado no formulário -> REVISAO_MANUAL com aviso
+    art_outra = art_texto.replace("14572403", "99999999")
+    res2 = auditor.auditar_documento("art_outro.pdf", art_outra,
+                                     arts_formulario=arts_form)
+    assert res2[0].status.value == "REVISAO_MANUAL"
+    assert any("NÃO confere" in i for i in res2[0].itens_reprovados)
+    # sem formulário carregado -> REVISAO_MANUAL explícito
+    res3 = auditor.auditar_documento("art3.pdf", art_texto)
+    assert res3[0].status.value == "REVISAO_MANUAL"
+
+
+def test_laudo_fauna_continua_recebendo_tr_fauna():
+    """Laudo de fauna DE VERDADE (sem padrão de ART) continua na auditoria do
+    TR LFS; e um documento que só MENCIONA 'com ART de responsável técnico'
+    NÃO é tratado como ART."""
+    from licenciamento.auditor_tecnico import AuditorTecnico
+    auditor = AuditorTecnico()
+    assert AuditorTecnico.identificar_art_rtt(
+        "LAUDO DE FAUNA SILVESTRE\nmastofauna avifauna herpetofauna\n"
+        "elaborado de acordo com o TR desta secretaria, com ART de "
+        "responsável técnico habilitado") is None
+    laudo = ("LAUDO DE FAUNA SILVESTRE - LFS\n"
+             "Metodologia: busca ativa com armadilhas de interceptação e "
+             "queda (pitfall) para mastofauna e avifauna; busca passiva com "
+             "recordação acustica. Campanhas em primavera e verão. "
+             "Curva do coletor: suficientemente amostado.\n")
+    res = auditor.auditar_documento("lfs.pdf", laudo)
+    assert any("Fauna" in r.norma_tr for r in res)
+
+
+def test_eiv_com_secao_de_fauna_nao_recebe_tr_fauna():
+    """EIV (título declara) tem seção de fauna no corpo: o roteador aplica
+    SOMENTE o TR do EIV - não pode aparecer PENDENTE de TR de fauna."""
+    from licenciamento.auditor_tecnico import AuditorTecnico
+    auditor = AuditorTecnico()
+    eiv = ("ESTUDO DE IMPACTO DE VIZINHANÇA - EIV\n"
+           "1. Identificação do empreendimento...\n"
+           "5. Diagnóstico da área de influência: fauna local (mastofauna, "
+           "avifauna) registrada no entorno; população e infraestrutura "
+           "urbana; tráfego gerado; ventilação e sombreamento.\n")
+    res = auditor.auditar_documento("eiv.pdf", eiv)
+    normas = [r.norma_tr for r in res]
+    assert any("Vizinhan" in n for n in normas), normas
+    assert not any("Fauna" in n for n in normas), normas
+
+
+def test_listagem_ignora_rodape_obs_multilinha():
+    """O OBS. quebra em 2 linhas no formulário real: a 2ª linha ('adicionais
+    ao processo...') NÃO vira item da listagem, e o letreiro do bloco
+    seguinte não cola no item 14."""
+    parser = FormularioParser(str(EXEMPLOS / REAL))
+    parser.parse()
+    dados = parser.aplicar_pleito_manual("LP", "Primeira licença")
+    docs = dados["documentos_exigidos"]["lista_deduplicada"]
+    assert len(docs) == 14
+    juntado = [d for d in docs if "adicionais ao processo" in d.lower()
+               or "condomínios horizontais" in d.lower()]
+    assert not juntado, juntado
+    assert docs[-1].startswith("14. ART de profissional")

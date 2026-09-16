@@ -956,12 +956,141 @@ class AuditorTecnico:
             else:
                 score.pop("RFO")
 
+        # Disputa EIV x FAUNA: o TÍTULO/cabeçalho declara o que o documento É.
+        # Um EIV tem seção de fauna (e uma ART de laudo de fauna menciona o
+        # empreendimento) - o corpo não pode disparar o TR errado.
+        if score.get("EIV") and score.get("FAUNA"):
+            # vence o tipo que o documento DECLARA PRIMEIRO (título/abertura);
+            # empate na posição -> TR de melhor aderência
+            pos_eiv = min((p_ for p_ in (t.find("impacto de vizinhanca"),
+                                         t.find("eiv")) if p_ >= 0),
+                          default=10**9)
+            pos_fauna = min((p_ for p_ in (t.find("laudo de fauna"),
+                                           t.find("inventario de fauna"),
+                                           t.find("lfs"), t.find("mastofauna"),
+                                           t.find("avifauna"),
+                                           t.find("fauna")) if p_ >= 0),
+                            default=10**9)
+            if pos_eiv < pos_fauna:
+                score.pop("FAUNA")
+            elif pos_fauna < pos_eiv:
+                score.pop("EIV")
+            elif score["EIV"] >= score["FAUNA"]:
+                score.pop("FAUNA")
+            else:
+                score.pop("EIV")
+
         ordem = ["SONDAGEM", "RFO", "PRAD", "FAUNA", "PCA", "EIV", "LCV"]
         return [tr for tr in ordem if score.get(tr, 0) > 0]
 
-    def auditar_documento(self, nome_documento: str, texto: str) -> list[ResultadoValidacao]:
-        """Aplica todos os TRs aplicáveis ao laudo e devolve a lista de resultados."""
+    # ------------------------------------------------------------------
+    # ART/RTT: documento PRÓPRIO (não é laudo - não recebe TR de conteúdo)
+    # ------------------------------------------------------------------
+    RE_NUM_ART_DOC = re.compile(
+        r"(?:\bART\b|\bRTT\b|\bRRT\b)\s*n?[ºo°.]?\s*[:\-]?\s*"
+        r"([0-9][0-9./\-]{5,15})", re.I)
+    RE_NOME_ART_DOC = re.compile(
+        r"(?:contratad[oa]|respons[aá]vel t[eé]cnic[oa]|profissional|"
+        r"titular|t[eé]cnico respons[aá]vel)\s*(?:\(a\))?\s*[:\-]\s*"
+        r"([^\n:]{4,60})", re.I)
+
+    @classmethod
+    def identificar_art_rtt(cls, texto: str) -> Optional[dict]:
+        """Identifica se o documento É uma ART/RTT (anotação de responsabilidade),
+        extraindo o NÚMERO e o NOME do profissional. Documentos escaneados de
+        foto chegam aqui já com o texto extraído via OCR.
+
+        Exige o PAR forte: nº da ART declarado + (CREA/CAU ou RTT/anotação) -
+        um laudo que apenas MENCIONA 'com ART de responsável técnico' não é
+        uma ART. Retorna {'numero', 'nome'} ou None."""
+        t = ProvedorLLMHeuristico._norm(texto)
+        cabecalho = t[:600]
+        m_num = cls.RE_NUM_ART_DOC.search(texto)
+        tem_orgao = ("crea" in t or "cau" in t or "rtt" in cabecalho
+                     or "anotacao de responsabilidade" in t)
+        if not (m_num and tem_orgao):
+            return None
+        numero = re.sub(r"\D", "", m_num.group(1)) or None
+        nome = None
+        m_nome = cls.RE_NOME_ART_DOC.search(texto)
+        if m_nome:
+            nome = re.sub(r"\s+", " ", m_nome.group(1)).strip(" .;-") or None
+        return {"numero": numero, "nome": nome}
+
+    def _conferir_art_com_formulario(
+            self, nome_documento: str, art_doc: dict,
+            arts_formulario: Optional[list[dict]]) -> ResultadoValidacao:
+        """Conferência da ART/RTT do DOCUMENTO com as declaradas no formulário
+        HTML (responsável técnico principal + seção 4.3)."""
+        norma = "Conferência ART/RTT × formulário HTML"
+        numero_doc, nome_doc = art_doc.get("numero"), art_doc.get("nome")
+        metricas = {"art_documento": numero_doc, "nome_documento": nome_doc,
+                    "arts_declaradas": arts_formulario or []}
+        trecho = ""
+        if not arts_formulario:
+            return ResultadoValidacao(
+                documento_analisado=nome_documento, norma_tr=norma,
+                status=StatusValidacao.REVISAO_MANUAL,
+                itens_reprovados=["Documento identificado como ART/RTT "
+                                  f"(nº {numero_doc or 'não legível'}) e nenhum "
+                                  "formulário HTML carregado para a "
+                                  "conferência número/nome."],
+                metricas=metricas, origem=OrigemAnalise.DETERMINISTICO)
+
+        def _tokens(nome: str) -> set[str]:
+            return {x for x in ProvedorLLMHeuristico._norm(nome or "").split()
+                    if len(x) >= 4}
+
+        for declarada in arts_formulario:
+            num_decl = re.sub(r"\D", "", declarada.get("numero") or "")
+            bate_num = bool(numero_doc and num_decl
+                            and numero_doc == num_decl)
+            nome_decl = declarada.get("nome") or ""
+            comuns = (_tokens(nome_doc) & _tokens(nome_decl)) if nome_doc else set()
+            bate_nome = len(comuns) >= min(2, max(1, len(_tokens(nome_decl))))
+            if bate_num:
+                if bate_nome:
+                    return ResultadoValidacao(
+                        documento_analisado=nome_documento, norma_tr=norma,
+                        status=StatusValidacao.CONFORME, itens_reprovados=[],
+                        trecho_referencia=(f"ART nº {numero_doc} - "
+                                           f"{nome_doc or nome_decl}"),
+                        metricas=metricas,
+                        origem=OrigemAnalise.DETERMINISTICO)
+                return ResultadoValidacao(
+                    documento_analisado=nome_documento, norma_tr=norma,
+                    status=StatusValidacao.REVISAO_MANUAL,
+                    itens_reprovados=[
+                        f"ART nº {numero_doc} confere com o formulário, mas o "
+                        "NOME do profissional não pôde ser conferido no "
+                        "documento (verificar)."],
+                    metricas=metricas, origem=OrigemAnalise.DETERMINISTICO)
+        declaradas_txt = ", ".join(
+            f"{d.get('numero') or '?'} ({d.get('nome') or 'sem nome'})"
+            for d in arts_formulario) or "nenhuma"
+        return ResultadoValidacao(
+            documento_analisado=nome_documento, norma_tr=norma,
+            status=StatusValidacao.REVISAO_MANUAL,
+            itens_reprovados=[
+                f"ART/RTT nº {numero_doc or 'não legível'} do documento NÃO "
+                f"confere com as declaradas no formulário HTML "
+                f"({declaradas_txt}) - pode ser ART de outra etapa; conferir."],
+            metricas=metricas, origem=OrigemAnalise.DETERMINISTICO)
+
+    def auditar_documento(self, nome_documento: str, texto: str,
+                          arts_formulario: Optional[list[dict]] = None
+                          ) -> list[ResultadoValidacao]:
+        """Aplica os TRs aplicáveis ao laudo e devolve os resultados.
+
+        ARTs/RTTs (documento próprio, às vezes foto/scan lido por OCR) NÃO
+        recebem TR de conteúdo: são conferidas (número + nome do profissional)
+        com as ARTs declaradas no formulário HTML (arts_formulario)."""
         resultados: list[ResultadoValidacao] = []
+        art_doc = self.identificar_art_rtt(texto)
+        if art_doc is not None:
+            resultados.append(self._conferir_art_com_formulario(
+                nome_documento, art_doc, arts_formulario))
+            return resultados
         if len(texto.strip()) < 40:
             resultados.append(ResultadoValidacao(
                 documento_analisado=nome_documento,
@@ -992,8 +1121,11 @@ class AuditorTecnico:
                     config_tr = (Calibracao().gabarito_trs or {}).get(
                         "trs_checklist_conteudo", {}).get(tr)
                     if config_tr and config_tr.get("itens"):
+                        nome_tr = str(config_tr.get("nome", tr))
+                        if not nome_tr.upper().startswith("TR"):
+                            nome_tr = f"TR {nome_tr}"
                         resultados.append(self.validar_checklist_tr(
-                            nome_documento, f"TR {config_tr.get('nome', tr)}",
+                            nome_documento, nome_tr,
                             texto, config_tr["itens"]))
                     else:
                         # fallback embutido (sem config oficial carregada)

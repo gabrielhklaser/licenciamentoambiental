@@ -229,9 +229,14 @@ class FormularioParser:
     # linhas de rodapé das listagens reais (NUNCA são continuação de item):
     # '*Modelos de documentos disponíveis...', 'OBS.: A análise...', e os
     # letreiros 'Licenciamento de Parcelamento ... LP, LI e LO.'
+    # letreiros ENTRE listagens: pular a linha e seguir
     RE_FIM_LISTAGEM = re.compile(
-        r"MODELOS DE DOCUMENTOS|^OBS\b|LICENCIAMENTO DE PARCELAMENTO|"
-        r"LICENCIAMENTO DE|ANALISE DESTES DOCUMENTOS|\(LP\)\s*,")
+        r"LICENCIAMENTO DE PARCELAMENTO|LICENCIAMENTO DE|"
+        r"ANALISE DESTES DOCUMENTOS|\(LP\)\s*,")
+    # rodapé PÓS-listagem ('\*Modelos de documentos...', 'OBS.: A análise...'):
+    # encerra a coleta de itens da fase (o texto OBS quebra em 2 linhas no
+    # Word e a 2ª linha virava 'item' da listagem!)
+    RE_FIM_LISTA_END = re.compile(r"MODELOS DE DOCUMENTOS|^OBS\b")
 
     REGEX_SUBSECOES_FASE = [
         ("RENOVACAO", re.compile(r"RENOVACAO\s+DE\s+LICENCAS")),
@@ -1771,6 +1776,8 @@ class FormularioParser:
                     if not linha:
                         continue
                     n = normalizar(linha)
+                    if self.RE_FIM_LISTA_END.search(n):
+                        break  # rodapé pós-listagem: itens da fase encerrados
                     if self.RE_FIM_LISTAGEM.search(n):
                         continue  # rodapé/letreiro entre as listagens
                     # item NUMERADO com fase já estabelecida é SEMPRE um
@@ -1791,6 +1798,8 @@ class FormularioParser:
                         por_fase.setdefault(fase_corrente, []).append(linha)
                     elif por_fase.get(fase_corrente):
                         anterior = por_fase[fase_corrente][-1]
+                        if anterior[-1:] in ";." and linha[:1].islower():
+                            continue  # fragmento de prosa (não é documento)
                         if anterior[-1:] in ";.":
                             por_fase[fase_corrente].append(linha)  # item <li>
                         else:

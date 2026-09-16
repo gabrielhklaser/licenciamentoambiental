@@ -165,6 +165,17 @@ def executar_analise(arquivos: list, tipo_selecionado: str,
     analises: dict[str, object] = {}
     resultados_tecnicos: list = []
     auditor = AuditorTecnico()
+    # ARTs/RTTs DECLARADAS no formulário HTML (RT principal + seção 4.3):
+    # base de conferência para os documentos que são uma ART/RTT
+    arts_formulario: list[dict] = []
+    rt_principal = dados.get("responsavel_tecnico") or {}
+    if rt_principal.get("registro_art"):
+        arts_formulario.append({"numero": rt_principal.get("registro_art"),
+                                "nome": rt_principal.get("nome")})
+    for prof in dados.get("responsaveis_etapas") or []:
+        if prof.get("art_rtt"):
+            arts_formulario.append({"numero": prof.get("art_rtt"),
+                                    "nome": prof.get("nome")})
     for arq in documentos:
         texto = validador.extrair_texto(arq.name, arq.getvalue())
         textos_anexos[arq.name] = texto
@@ -173,7 +184,8 @@ def executar_analise(arquivos: list, tipo_selecionado: str,
         arquivos_analise.append(registro)
         analises[arq.name] = validador.analisar_documento(arq.name, texto)
         if len(texto.strip()) >= 40:
-            resultados_tecnicos.extend(auditor.auditar_documento(arq.name, texto))
+            resultados_tecnicos.extend(auditor.auditar_documento(
+                arq.name, texto, arts_formulario=arts_formulario or None))
 
     # o formulário também participa do casamento do quadro
     for form in formularios:
