@@ -39,8 +39,74 @@ from licenciamento.validador_documentos import (EXTENSOES_IMAGEM,
 
 RAIZ = Path(__file__).resolve().parent
 
+# ==============================================================================
+# TEMA (claro/escuro) - alternado pelo licenciador na barra lateral
+# ==============================================================================
+CSS_TEMA_ESCURO = """
+<style>
+:root {
+  --background-color: #0f1216 !important;
+  --secondary-background-color: #171c23 !important;
+  --primary-color: #5cb860 !important;
+  --text-color: #e8eaed !important;
+}
+[data-testid="stApp"], [data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"] > .main {
+  background: #0f1216; color: #e8eaed;
+}
+[data-testid="stHeader"] { background: rgba(15,18,22,0.2); }
+[data-testid="stSidebar"] { background: #141920; border-right: 1px solid #2a313c; }
+[data-testid="stSidebar"] * { color: #e8eaed; }
+h1, h2, h3, h4, h5, h6, p, li, strong, b, label, summary { color: #e8eaed; }
+[data-testid="stExpander"], details {
+  background: #171c23; border: 1px solid #2a313c !important; border-radius: 10px; }
+[data-testid="stExpanderDetails"] { background: #171c23; }
+[data-testid="stMetricContainer"], [data-testid="stMetric"] {
+  background: #171c23; border: 1px solid #2a313c; border-radius: 10px;
+  padding: 8px 12px; }
+[data-testid="stMetricValue"] { color: #e8eaed !important; }
+[data-testid="stMetricLabel"] p { color: #aab2bd !important; }
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p {
+  color: #aab2bd !important; }
+[data-testid="stAlert"] {
+  background-color: #1d242e !important; color: #e8eaed !important;
+  border: 1px solid #2a313c !important; }
+[data-testid="stFileUploaderDropzone"] {
+  background: #171c23 !important; border: 1px dashed #3a4350 !important; }
+[data-testid="stFileUploaderDropzone"] * { color: #aab2bd !important; }
+[data-testid="stTextInput"] input, [data-testid="stTextArea"] textarea {
+  background: #171c23 !important; color: #e8eaed !important;
+  border: 1px solid #2a313c !important; }
+[data-testid="stRadio"] label, [data-testid="stCheckbox"] label { color: #e8eaed !important; }
+[data-testid="stDataFrame"] { border: 1px solid #2a313c; border-radius: 8px; }
+[data-testid="stJson"] { background: #171c23 !important; }
+[data-testid="stVerticalBlockBorderContainer"] { border-color: #2a313c !important; }
+hr { border-color: #2a313c; }
+[data-testid="stMarkdownContainer"] a { color: #7fc4ff; }
+</style>
+"""
+
+
+def aplicar_tema(escuro: bool) -> None:
+    """Injeta o CSS do tema escolhido. Em modo CLARO injeta um bloco vazio
+    para manter um único bloco de tema no DOM (sem CSS residual do escuro)."""
+    if escuro:
+        st.markdown(CSS_TEMA_ESCURO, unsafe_allow_html=True)
+    else:
+        st.markdown("<style>/* tema claro (padrão) */</style>",
+                    unsafe_allow_html=True)
+
+
 st.set_page_config(page_title="Licenciamento Ambiental — SEMA Campo Bom",
                    page_icon="🌿", layout="wide")
+
+# ---- Preferências: tema claro (padrão) ou escuro, na barra lateral ----
+with st.sidebar:
+    st.header("⚙️ Preferências")
+    st.toggle("🌙 Tema escuro", key="tema_escuro",
+              help="Alterna entre o tema claro (padrão) e o tema escuro.")
+aplicar_tema(bool(st.session_state.get("tema_escuro")))
+
 
 # Formatos aceitos no upload (etapa 1) - inclui IMAGENS, pois documentações
 # às vezes são enviadas como fotos/escaneamentos (png, jpg, etc.)

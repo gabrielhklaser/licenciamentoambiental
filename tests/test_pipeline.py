@@ -1405,3 +1405,17 @@ def test_listagem_ignora_rodape_obs_multilinha():
                or "condomínios horizontais" in d.lower()]
     assert not juntado, juntado
     assert docs[-1].startswith("14. ART de profissional")
+
+
+def test_tema_escuro_toggle_na_barra_lateral():
+    """A app oferece alternância de tema (claro/escuro) na barra lateral:
+    existe o toggle, liga sem exceção e a página continua renderizando."""
+    from streamlit.testing.v1 import AppTest
+    at = AppTest.from_file(str(RAIZ / "app.py"), default_timeout=120)
+    at.run()
+    assert len(at.sidebar.toggle) == 1
+    at.sidebar.toggle[0].set_value(True).run()
+    assert not at.exception
+    # desligar de volta também não pode quebrar
+    at.sidebar.toggle[0].set_value(False).run()
+    assert not at.exception
