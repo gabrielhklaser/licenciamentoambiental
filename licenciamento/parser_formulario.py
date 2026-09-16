@@ -122,7 +122,9 @@ class FormularioParser:
         "potencial_poluidor": ["POTENCIAL POLUIDOR", "POTENCIAL DE POLUICAO",
                                "POTENCIAL POLUIDOR/DEGRADADOR",
                                "PORTE/POTENCIAL POLUIDOR", "PORTE/POTENCIAL"],
-        "area_total": ["AREA TOTAL DO IMOVEL", "AREA TOTAL", "AREA TOTAL (HA)", "AREA DO IMOVEL (HA)"],
+        "area_total": ["AREA TOTAL DO IMOVEL", "AREA TOTAL", "AREA TOTAL (HA)",
+                      "AREA DO IMOVEL (HA)", "AREA TOTAL DO EMPREENDIMENTO",
+                      "AREA TOTAL (M2)", "SUPERFICIE TOTAL"],
         "area_util": ["AREA UTIL/DE INTERVENCAO", "AREA UTIL", "AREA DE INTERVENCAO",
                       "AREA UTIL DO EMPREENDIMENTO", "AREA DE INTERVENCAO (HA)",
                       "AREA TOTAL DE INTERVENCAO", "AREA DA INTERVENCAO"],
@@ -137,7 +139,9 @@ class FormularioParser:
         "registro_crea": ["REGISTRO CREA", "CREA", "N. REGISTRO CREA", "CREA/CAU"],
         "tipo_licenca": ["TIPO DE LICENCA", "ESPECIE DO PLEITO", "PLEITO", "LICENCA REQUERIDA",
                          "TIPO/ESPECIE DO PLEITO", "OBJETO DO PLEITO"],
-        "coordenadas_utm": ["COORDENADAS UTM", "COORDENADA UTM", "COORDENADAS UTM (SIRGAS 2000)"],
+        "coordenadas_utm": ["COORDENADAS UTM", "COORDENADA UTM",
+                            "COORDENADAS UTM (SIRGAS 2000)", "COORDENADAS (SIRGAS 2000)",
+                            "COORDENADAS DO EMPREENDIMENTO", "COORDENADAS", "UTM"],
         "coordenada_e": ["E (EASTING)", "COORDENADA E", "E (M)", "E"],
         "coordenada_n": ["N (NORTHING)", "COORDENADA N", "N (M)", "N"],
         "fuso": ["FUSO", "FUSO UTM"],
@@ -479,6 +483,10 @@ class FormularioParser:
 
             # ---- UTM -----------------------------------------------------
             texto_busca = bruto or self._texto_original
+            def _arredondar(valor: Any, casas: int):
+                """round resiliente: valor não numérico vira None (sem exceção)."""
+                return round(valor, casas) if isinstance(valor, (int, float)) else None
+
             e = self.REGEX["utm_e"].search(texto_busca)
             n = self.REGEX["utm_n"].search(texto_busca)
             valor_e, valor_n = para_float(e.group(1)) if e else None, para_float(n.group(1)) if n else None
@@ -494,8 +502,8 @@ class FormularioParser:
                 fuso = self.REGEX["fuso"].search(texto_busca)
                 saida.update({
                     "formato": "UTM",
-                    "easting_m": round(valor_e, 2),
-                    "northing_m": round(valor_n, 2),
+                    "easting_m": _arredondar(valor_e, 2),
+                    "northing_m": _arredondar(valor_n, 2),
                     "fuso": int(fuso.group(1)) if fuso else 22,  # RS = fuso 22S
                     "hemisferio": "S",
                 })
@@ -511,8 +519,8 @@ class FormularioParser:
                 lat_dec = self.REGEX["latitude_grau_decimal"].search(texto_busca)
                 lon_dec = self.REGEX["longitude_grau_decimal"].search(texto_busca)
                 if lat_dec and lon_dec:
-                    saida["latitude"] = round(para_float(lat_dec.group(1)), 7)
-                    saida["longitude"] = round(para_float(lon_dec.group(1)), 7)
+                    saida["latitude"] = _arredondar(para_float(lat_dec.group(1)), 7)
+                    saida["longitude"] = _arredondar(para_float(lon_dec.group(1)), 7)
                 else:
                     lat_gms = self.REGEX["latitude_gms"].search(texto_busca)
                     lon_gms = self.REGEX["longitude_gms"].search(texto_busca)
@@ -528,8 +536,8 @@ class FormularioParser:
                             float(str(lon_gms.group(3)).replace(",", ".")),
                             lon_gms.group(4) or "W")
             if saida["latitude"] is not None:
-                saida["latitude"] = round(saida["latitude"], 7)   # limpeza SIRGAS 2000
-                saida["longitude"] = round(saida["longitude"], 7)
+                saida["latitude"] = _arredondar(saida["latitude"], 7)   # limpeza SIRGAS 2000
+                saida["longitude"] = _arredondar(saida["longitude"], 7)
             if saida["formato"] is None and saida["latitude"] is not None:
                 saida["formato"] = "GEOGRAFICA"
             if saida["formato"] is None:
