@@ -75,6 +75,60 @@ class AgenteAdministrativo:
         texto = re.sub(r"[^\w\s]", " ", texto.lower())
         return re.sub(r"\s+", " ", texto).strip()
 
+    def _conferir_responsaveis_etapas(self, dados_processo: dict,
+                                      anexados: list[str],
+                                      textos: dict[str, str]) -> list[dict[str, Any]]:
+        """Seção 4.3 do formulário ('demais responsáveis técnicos de diferentes
+        etapas'): cada ART/RTT listada deve ser encontrada nos documentos
+        apresentados, com o NOME ou o REGISTRO do profissional batendo."""
+        resultado: list[dict[str, Any]] = []
+        try:
+            responsaveis = dados_processo.get("responsaveis_etapas") or []
+            for prof in responsaveis:
+                art = (prof.get("art_rtt") or "").strip()
+                m_num = re.search(r"([\w./\-]{5,})\s*$", art)
+                numero = re.sub(r"\D", "", m_num.group(1)) if m_num else ""
+                nome = (prof.get("nome") or "").strip()
+                registro = (prof.get("registro") or "").strip()
+                tokens = [t for t in self._normalizar(nome).split() if len(t) >= 4]
+                reg_digitos = re.sub(r"\D", "", registro)
+                achou_anexo, achou_nivel = None, None
+                for anexo in anexados:
+                    texto = textos.get(anexo) or ""
+                    if not texto:
+                        continue
+                    tem_art = bool(numero) and numero in re.sub(r"\D", "", texto)
+                    if not tem_art:
+                        continue
+                    texto_n = self._normalizar(texto)
+                    tem_nome = bool(tokens) and all(t in texto_n
+                                                    for t in tokens[:3])
+                    tem_reg = (bool(reg_digitos)
+                               and reg_digitos in re.sub(r"\D", "", texto))
+                    if tem_nome or tem_reg:
+                        achou_anexo = anexo
+                        achou_nivel = ("ART/RTT + nome e registro conferidos"
+                                       if (tem_nome and tem_reg)
+                                       else ("ART/RTT + nome conferido" if tem_nome
+                                             else "ART/RTT + registro conferido"))
+                        break
+                    if achou_nivel is None:
+                        achou_anexo, achou_nivel = anexo, \
+                            "somente o nº da ART/RTT (nome/registro não batem)"
+                resultado.append({
+                    "profissional": nome or "(sem nome no formulário)",
+                    "registro": registro or None,
+                    "art_rtt": art or None,
+                    "etapa": prof.get("etapa") or "",
+                    "encontrado": achou_nivel is not None
+                    and "somente" not in (achou_nivel or ""),
+                    "anexo": achou_anexo,
+                    "nivel": achou_nivel,
+                })
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Falha ao conferir responsáveis das etapas: %s", exc)
+        return resultado
+
     def _completar_campos_criticos(self, dados_processo: dict,
                                    anexados: list[str],
                                    textos: dict[str, str],
@@ -248,6 +302,18 @@ class AgenteAdministrativo:
             if anexo not in anexados_reconhecidos:
                 avisos.append(f"Anexo '{anexo}' não corresponde a nenhuma exigência do checklist.")
 
+        # 2.5) Conferência dos profissionais das etapas (seção 4.3):
+        # ART/RTT de cada responsável procurada nos documentos apresentados
+        conferencia_responsaveis = self._conferir_responsaveis_etapas(
+            dados_processo, documentos_anexados, textos)
+        for conf in conferencia_responsaveis:
+            if not conf["encontrado"]:
+                avisos.append(
+                    f"ART/RTT {conf['art_rtt']} ({conf['profissional']}) NÃO "
+                    f"confirmada nos documentos apresentados - conferir o "
+                    f"responsável da etapa "
+                    f"'{conf.get('etapa') or 'não informada'}'.")
+
         # 3) Status consolidado -------------------------------------------
         if bloqueios:
             status_geral = "BLOQUEADO"
@@ -263,6 +329,7 @@ class AgenteAdministrativo:
             "documentos_ok": documentos_ok,
             "documentos_pendentes": documentos_pendentes,
             "origem_ok": origem_ok,
+            "conferencia_responsaveis": conferencia_responsaveis,
             "avisos": avisos,
             "resumo": {
                 "total_exigidos": len(exigidos),

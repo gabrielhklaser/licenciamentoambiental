@@ -838,3 +838,70 @@ def test_parser_aplicar_pleito_manual_remonta_listagem():
     assert "DIVERGÊNCIA" in dados_lor["pleito"]["divergencia_selecao"]
     # listagem do LOR vem das 3 fases do PRÓPRIO formulário (deduplicada)
     assert len(dados_lor["documentos_exigidos"]["lista_deduplicada"]) > qtde_li
+
+
+# ==============================================================================
+# Parcelamento de solo (LP): 'Documentos Requeridos' numerados + RTs da seção 4.3
+# ==============================================================================
+def test_parcelamento_lp_lista_numerada_14_documentos():
+    """Formulário de PARCELAMENTO (LP): a seção 'Documentos Requeridos' no
+    final fornece a listagem CONSERVANDO a numeração (1..14); a taxa usa a
+    Tabela D (faixa 10-20 ha) com a área lida do formulário."""
+    dados = _parse("formulario_PARCELAMENTO_LP.htm")
+    pleito = dados["pleito"]
+    assert pleito["tipo_licenca"] == "LP", pleito
+    lista = dados["documentos_exigidos"]["lista_deduplicada"]
+    assert len(lista) == 14, lista
+    assert lista[0].startswith("1. Diretrizes Urbanísticas")
+    assert lista[3].startswith("4. Cópia da matrícula atualizada")
+    assert lista[13].startswith("14. ART de profissional habilitado")
+    emp = dados["empreendimento"]
+    assert emp["area_total_ha"] == pytest.approx(12.5)
+    assert emp["codram"]
+    fin = AgenteFinanceiro().calcular_do_parser(dados)
+    assert fin["total_urm"] == pytest.approx(2294.76)  # Tabela D, 10-20 ha, LP
+
+
+def test_responsaveis_4_3_extraidos_e_cruzados_nos_anexos():
+    """Seção 4.3 (demais responsáveis de etapas): RTT/ART de cada profissional
+    é procurada nos documentos com NOME e REGISTRO batendo; ausente => aviso."""
+    dados = _parse("formulario_PARCELAMENTO_LP.htm")
+    rts = dados["responsaveis_etapas"]
+    assert len(rts) == 2, rts
+    assert rts[0]["nome"] == "Ana Prado Schneider"
+    assert rts[0]["art_rtt"] == "RTT 55210098745"
+    assert "CREA" in (rts[0]["registro"] or "")
+    assert rts[1]["art_rtt"] == "RTT 55210112458"
+
+    matricula_txt = ("MATRÍCULA Nº 55.888 Registro de Imóveis\n"
+                     "Campo Bom, 10 de setembro de 2026.")
+    laudo_txt = ("Laudo Geológico com Sondagem e Ensaios de Infiltração\n"
+                 "Responsável Técnica: Ana Prado Schneider CREA 84512/D "
+                 "RTT 55210098745")
+    anexos = ["°Cópia da matrícula atualizada.txt", "copia_cnpj.pdf",
+              "contrato_social.pdf", "laudo_geologico_sondagem.pdf"]
+    textos = {anexos[0]: matricula_txt, anexos[3]: laudo_txt,
+              anexos[1]: "Comprovante de Inscrição CNPJ 45.678.912/0001-03",
+              anexos[2]: "Contrato Social da Vale Verde Incorporadora"}
+    resultado = AgenteAdministrativo().auditar(
+        dados, anexos, textos_anexados=textos)
+    conf = resultado["conferencia_responsaveis"]
+    assert conf[0]["encontrado"] is True
+    assert conf[0]["anexo"] == "laudo_geologico_sondagem.pdf"
+    assert "nome e registro" in conf[0]["nivel"]
+    assert conf[1]["encontrado"] is False          # RTT do Carlos não veio
+    assert any("55210112458" in a for a in resultado["avisos"])
+    # documentos reconhecidos mesmo com o nº na frente do exigido
+    assert any("matrícula" in d.lower() and "4." in d
+               for d in resultado["documentos_ok"])
+
+
+def test_deduplicacao_ignora_numeracao_da_listagem():
+    """'1. Matrícula...' na LP e '2. Matrícula...' na LO são o MESMO documento:
+    a desduplicação compara SEM a numeração e mantém a 1ª ocorrência (c/ nº)."""
+    lista, removidos = FormularioParser._deduplicar_documentos(
+        ["1. Matrícula do imóvel atualizada", "2. Matrícula do imóvel atualizada",
+         "3. PGRS"])
+    assert len(lista) == 2
+    assert lista[0].startswith("1. Matrícula")
+    assert any("2." in r["documento"] for r in removidos)

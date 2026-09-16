@@ -502,6 +502,20 @@ def pagina_analise() -> None:
         for aviso in admin.get("avisos") or []:
             if "COMPLETADO" in aviso:
                 st.info("🔗 " + aviso)
+        # Responsáveis técnicos das etapas (seção 4.3): ART/RTT conferida
+        # nos documentos apresentados (nº + nome/registro)
+        for conf in admin.get("conferencia_responsaveis") or []:
+            etapa_txt = conf.get("etapa") or "não informada"
+            if conf.get("encontrado"):
+                st.success("✅ " + str(conf.get("profissional")) + " — "
+                           + str(conf.get("art_rtt")) + " (" + etapa_txt + "): "
+                           + str(conf.get("nivel")) + " em `"
+                           + str(conf.get("anexo")) + "`.")
+            else:
+                st.warning("🟡 " + str(conf.get("profissional")) + " — ART/RTT "
+                           + str(conf.get("art_rtt"))
+                           + " NÃO confirmada nos anexos (etapa: "
+                           + etapa_txt + ").")
 
     if financeiro:
         with st.expander("💰 Taxa de licenciamento (URMs)"):

@@ -215,7 +215,8 @@ class FormularioParser:
     # Cabeçalhos que marcam o início da seção de documentação exigida (texto normalizado)
     REGEX_SECAO_DOCS = re.compile(
         r"DOCUMENTACAO\s+EXIGIDA|DOCUMENTOS\s+EXIGIDOS|DOCUMENTACAO\s+NECESSARIA|"
-        r"RELACAO\s+DE\s+DOCUMENTOS|CHECKLIST\s+DE\s+DOCUMENTOS"
+        r"RELACAO\s+DE\+?S?\s+DOCUMENTOS|CHECKLIST\s+DE\s+DOCUMENTOS|"
+        r"DOCUMENTOS\s+REQUERIDOS|DOCUMENTACAO\s+REQUERIDA"
     )
 
     # Cabeçalhos de sub-seção por fase dentro do checklist (ordem de prioridade)
@@ -1368,6 +1369,86 @@ class FormularioParser:
             self._registrar_falha("extrair_documentos_exigidos", str(exc))
         return saida
 
+    def extrair_responsaveis_etapas(self) -> list[dict[str, Any]]:
+        """Seção 4.3 ('Existem demais responsáveis técnicos de diferentes
+        etapas?'): extrai cada profissional com nome, registro (CREA/CAU),
+        ART/RTT e etapa. Esses profissionais devem ser CONFERIDOS nos
+        documentos apresentados (nº da ART/RTT + nome/registro batendo)."""
+        saida: list[dict[str, Any]] = []
+        try:
+            re_ancora = re.compile(
+                r"DEMAIS\s+RESPONSAVEIS|RESPONSAVEIS\s+TECNICOS\s+DE\s+"
+                r"DIFERENTES\s+ETAPAS|OUTROS\s+RESPONSAVEIS", re.I)
+            re_art = re.compile(r"\b(ART|RTT)\s*n?[ºo°.]?\s*([\w./\-]{5,})", re.I)
+            re_reg = re.compile(r"\b(CREA|CAU)\s*n?[ºo°.]?\s*([\w./\-]{4,})", re.I)
+            ancora = None
+            if self.soup:
+                for tag in self.soup.find_all(["h1", "h2", "h3", "h4", "h5",
+                                               "strong", "b", "p", "td", "th",
+                                               "legend", "li"]):
+                    texto = tag.get_text(" ", strip=True)
+                    if texto and re_ancora.search(normalizar(texto)):
+                        ancora = tag
+                        break
+            for contêiner in (self._coletar_secao_da_ancora(ancora)
+                              if ancora else []):
+                for tr in contêiner.find_all("tr"):
+                    celulas = [c.get_text(" ", strip=True)
+                               for c in tr.find_all(["td", "th"])]
+                    linha = " | ".join(celulas)
+                    if not linha.strip("| "):
+                        continue
+                    m_art = re_art.search(linha)
+                    if not m_art:
+                        continue
+                    m_reg = re_reg.search(linha)
+                    etapa = ""
+                    for celula in celulas[1:]:
+                        if re_art.search(celula):
+                            continue
+                        if m_reg and m_reg.group(0).upper() in celula.upper():
+                            continue
+                        if re.search(r"ETAPA|LICEN|PROJETO|ESTUDO|LAUDO|OBRA|"
+                                     r"SONDAGEM|FAUNA|VEGETAL|FLORESTAL|"
+                                     r"RESPONSAVEL", normalizar(celula)):
+                            etapa = celula
+                            break
+                    saida.append({
+                        "nome": celulas[0].strip(" |") if celulas else "",
+                        "registro": (f"{m_reg.group(1)} {m_reg.group(2)}"
+                                     if m_reg else None),
+                        "art_rtt": f"{m_art.group(1).upper()} {m_art.group(2)}",
+                        "etapa": etapa,
+                    })
+            # fallback no texto (seção 4.3 sem tabela): linhas com ART/RTT
+            if not saida:
+                em_secao = False
+                for linha in self._texto_original.splitlines():
+                    linha = linha.strip()
+                    if not linha:
+                        continue
+                    if re_ancora.search(normalizar(linha)):
+                        em_secao = True
+                        continue
+                    if em_secao:
+                        if (re.match(r"^\d+\s*[.)]\s+\S", linha)
+                                and not re_art.search(linha)):
+                            break  # próxima seção numerada do formulário
+                        m_art = re_art.search(linha)
+                        if m_art:
+                            m_reg = re_reg.search(linha)
+                            nome = re_art.split(linha)[0].strip(" -|,")
+                            saida.append({
+                                "nome": nome or "",
+                                "registro": (f"{m_reg.group(1)} {m_reg.group(2)}"
+                                             if m_reg else None),
+                                "art_rtt": (f"{m_art.group(1).upper()} "
+                                            f"{m_art.group(2)}"),
+                                "etapa": ""})
+        except Exception as exc:  # noqa: BLE001
+            self._registrar_falha("extrair_responsaveis_etapas", str(exc))
+        return saida
+
     def _varrer_checklist_dom(self) -> dict[str, list[str]]:
         """Percorre o DOM em ordem de documento: localiza a seção de documentação,
         alterna a fase corrente conforme os cabeçalhos e coleta os itens de lista."""
@@ -1394,7 +1475,15 @@ class FormularioParser:
                 if fase_corrente and len(t_norm) > 2 and not self.REGEX_SECAO_DOCS.search(t_norm):
                     # considera apenas <li> de primeiro nível (evita listas aninhadas duplicadas)
                     if tag.find_parent("li") is None:
-                        por_fase.setdefault(fase_corrente, []).append(texto)
+                        texto_item = texto
+                        pai = tag.find_parent(["ol", "ul"])
+                        # a numeração de <ol> NÃO aparece no get_text:
+                        # gerada do índice do item (listagem conferida 1 a 1)
+                        if (pai is not None and pai.name == "ol"
+                                and not re.match(r"^\d+\s*[.)]", texto_item)):
+                            irmaos = [li for li in pai.find_all("li", recursive=False)]
+                            texto_item = f"{irmaos.index(tag) + 1}. {texto_item}"
+                        por_fase.setdefault(fase_corrente, []).append(texto_item)
             else:
                 subsecao = self._classificar_subsecao(texto)
                 if subsecao:
@@ -1425,7 +1514,10 @@ class FormularioParser:
                 continue
             if secao_iniciada and re.match(r"^([-•*·▪]|\d+[.)]|[a-z][.)])\s+", linha):
                 destino = fase_corrente or "_SEM_FASE"
-                por_fase.setdefault(destino, []).append(re.sub(r"^([-•*·▪]|\d+[.)]|[a-z][.)])\s+", "", linha))
+                # a numeração 'N.' é MANTIDA (listagem conferida 1 a 1);
+                # apenas marcadores visuais de bullet são removidos
+                item = re.sub(r"^[-•*·▪]\s+", "", linha).strip()
+                por_fase.setdefault(destino, []).append(item)
         return por_fase
 
     @staticmethod
@@ -1439,14 +1531,19 @@ class FormularioParser:
 
         Retorna (lista_deduplicada, lista_de_removidos_com_justificativa).
         """
-        selecionados: list[tuple[str, str]] = []  # (normalizado, original)
+        selecionados: list[tuple[str, str]] = []  # (chave sem nº, original c/ nº)
         removidos: list[dict] = []
+
+        def _chave(texto_norm: str) -> str:
+            """Chave de comparação IGNORANDO a numeração da listagem:
+            '4. Cópia da matrícula...' == '2. Cópia da matrícula...'."""
+            return re.sub(r"^\d+\s*[.)]\s*", "", texto_norm).strip()
 
         for item in itens:
             item = re.sub(r"\s+", " ", item).strip()
             if not item:
                 continue
-            n_item = normalizar(item)
+            n_item = _chave(normalizar(item))
             duplicado_de, parecenca = None, 0.0
             for n_sel, sel in selecionados:
                 if n_item == n_sel:                      # duplicidade exata (set)
@@ -1494,6 +1591,7 @@ class FormularioParser:
             "empreendedor": empreendedor,
             "empreendimento": empreendimento,
             "responsavel_tecnico": responsavel,
+            "responsaveis_etapas": self.extrair_responsaveis_etapas(),
             "pleito": pleito,
             "documentos_exigidos": documentos,
             "avisos_parser": self.log_erros,
