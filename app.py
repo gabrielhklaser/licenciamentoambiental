@@ -18,8 +18,9 @@ Fluxo em DUAS ETAPAS (wizard):
 
 from __future__ import annotations
 
+import json
 import re
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -130,6 +131,7 @@ def executar_analise(arquivos: list, tipo_selecionado: str,
     # ---- Fase 1: parser do formulário -------------------------------
     dados: dict = {}
     if formularios:
+        salvar_entrada_real(formularios, {})
         try:
             parser = FormularioParser(conteudo_html=formularios[0].getvalue().decode(
                 "utf-8", errors="replace"))
@@ -138,8 +140,10 @@ def executar_analise(arquivos: list, tipo_selecionado: str,
             # de documentos das fases correspondentes
             dados = parser.aplicar_pleito_manual(
                 tipo_selecionado, natureza_selecionada)
+            salvar_entrada_real([], dados)  # JSON da leitura (caixa-preta)
         except Exception as exc:  # noqa: BLE001
             st.session_state.erro_formulario = str(exc)
+            salvar_entrada_real([], {"erro": str(exc)})
 
     pleito = dados.get("pleito", {})
     tipo_licenca = pleito.get("tipo_licenca")
@@ -216,6 +220,26 @@ def executar_analise(arquivos: list, tipo_selecionado: str,
                    "validade_matricula_dias": validador.matricula_validade_dias},
     }
     st.session_state.etapa = "analise"
+
+
+def salvar_entrada_real(formularios: list, dados: dict) -> None:
+    """CAIXA-PRETA: guarda o formulário REAL enviado pelo licenciador e o JSON
+    produzido pelo parser em entradas_reais/ (fora do git). É o insumo para
+    calibrar o leitor contra os layouts verdadeiros (Word->HTML)."""
+    try:
+        pasta = RAIZ / "entradas_reais"
+        pasta.mkdir(exist_ok=True)
+        carimbo = datetime.now().strftime("%Y%m%d_%H%M%S")
+        for i, form in enumerate(formularios[:3]):
+            sufixo = Path(form.name).suffix.lower() or ".html"
+            (pasta / f"{carimbo}_{i}_formulario{sufixo}").write_bytes(
+                form.getvalue())
+        if dados:
+            (pasta / f"{carimbo}_leitura_parser.json").write_text(
+                json.dumps(dados, ensure_ascii=False, indent=2),
+                encoding="utf-8")
+    except Exception:  # noqa: BLE001 — a caixa-preta nunca derruba a análise
+        pass
 
 
 # ======================================================================

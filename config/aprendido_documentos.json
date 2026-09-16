@@ -1,4 +1,29 @@
 {
-  "descricao": "Associações nome->tipo APRENDIDAS pelo sistema (documento identificado pelo CONTEÚDO quando o nome do arquivo não casou direto). Gerenciado automaticamente pelo IdentificadorDocumentos.",
-  "aprendidos": []
+  "descricao": "Associações nome->tipo aprendidas (documento identificado pelo CONTEÚDO)",
+  "aprendidos": [
+    {
+      "nome": "art de profissional habilitado responsavel pelo licenciamento ambiental",
+      "tipo": "ART",
+      "data": "2026-09-16",
+      "evidencia": "2 assinaturas no conteúdo"
+    },
+    {
+      "nome": "art 228 assinado",
+      "tipo": "ART",
+      "data": "2026-09-16",
+      "evidencia": "2 assinaturas no conteúdo"
+    },
+    {
+      "nome": "cnpj",
+      "tipo": "CNPJ",
+      "data": "2026-09-16",
+      "evidencia": "2 assinaturas no conteúdo"
+    },
+    {
+      "nome": "rrt",
+      "tipo": "ART",
+      "data": "2026-09-16",
+      "evidencia": "3 assinaturas no conteúdo"
+    }
+  ]
 }

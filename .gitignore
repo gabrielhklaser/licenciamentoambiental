@@ -15,3 +15,6 @@ saida_*.docx
 .vscode/
 .idea/
 .DS_Store
+
+# Formulários reais enviados pelos usuários (caixa-preta de calibração)
+entradas_reais/
