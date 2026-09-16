@@ -125,7 +125,11 @@ class FormularioParser:
                                "PORTE/POTENCIAL POLUIDOR", "PORTE/POTENCIAL"],
         "area_total": ["AREA TOTAL DO IMOVEL", "AREA TOTAL", "AREA TOTAL (HA)",
                       "AREA DO IMOVEL (HA)", "AREA TOTAL DO EMPREENDIMENTO",
-                      "AREA TOTAL (M2)", "SUPERFICIE TOTAL"],
+                      "AREA TOTAL (M2)", "SUPERFICIE TOTAL",
+                      "AREA DO EMPREENDIMENTO", "AREA DO PARCELAMENTO",
+                      "AREA TOTAL DO PARCELAMENTO", "AREA DO LOTEAMENTO",
+                      "AREA TOTAL DO LOTEAMENTO", "AREA DA PROPRIEDADE",
+                      "AREA TOTAL DA PROPRIEDADE", "AREA DO TERRENO"],
         "area_util": ["AREA UTIL/DE INTERVENCAO", "AREA UTIL", "AREA DE INTERVENCAO",
                       "AREA UTIL DO EMPREENDIMENTO", "AREA DE INTERVENCAO (HA)",
                       "AREA TOTAL DE INTERVENCAO", "AREA DA INTERVENCAO",
@@ -646,6 +650,27 @@ class FormularioParser:
             resultado["municipio"] = self._buscar_valor(self.ROTULOS["municipio"]) or "Campo Bom"
             resultado["coordenadas"] = self.extrair_coordenadas()
 
+            if resultado["area_total_ha"] is None:
+                # Fallback: procura 'ÁREA (TOTAL)? DO/DA ... <n> ha|m²' no texto
+                # (formulários de parcelamento costumam variar o rótulo)
+                achou = re.search(
+                    r"AREA\s*(?:TOTAL\s*)?(?:DO|DA|DE)?\s*"
+                    r"(?:EMPREENDIMENTO|PARCELAMENTO|LOTEAMENTO|PROPRIEDADE|"
+                    r"IMOVEL|TERRENO)?[^0-9\n]{0,40}"
+                    r"(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?)\s*"
+                    r"(HA|HECTARES?|M\s*[²2])\b",
+                    self._texto_norm)
+                if achou:
+                    valor = para_float(achou.group(1))
+                    unidade = achou.group(2).upper()
+                    if valor is not None:
+                        if unidade.startswith("M"):
+                            valor = round(valor / 10000.0, 4)
+                        resultado["area_total_ha"] = valor
+                        self._registrar_falha(
+                            "extrair_dados_empreendimento",
+                            f"área total lida do texto por padrão geral "
+                            f"({achou.group(0).strip()})")
             if resultado["area_total_ha"] is None:
                 self._registrar_falha("extrair_dados_empreendimento", "área total ausente")
         except Exception as exc:  # noqa: BLE001
