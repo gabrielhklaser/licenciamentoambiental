@@ -265,12 +265,12 @@ class ValidadorDocumentos:
         """Verifica o prazo de validade da matrícula do imóvel.
 
         Regra (instrução do licenciador, 15/09/2026): a matrícula deve estar
-        dentro do prazo de validade de 90 DIAS a partir da data de emissão,
-        que fica no final do documento (canto inferior esquerdo).
+        dentro do prazo de validade de 90 DIAS CORRIDOS a partir da data de
+        emissão, que fica no final do documento (canto inferior esquerdo).
         """
         ref = data_referencia or date.today()
         norma = (f"Conferência documental - matrícula do imóvel "
-                 f"(validade {self.matricula_validade_dias} dias)")
+                 f"(validade de {self.matricula_validade_dias} dias corridos)")
         data_emissao = self.extrair_data_emissao(texto, self.matricula_cauda_caracteres)
         metricas: dict[str, Any] = {
             "prazo_validade_dias": self.matricula_validade_dias,
@@ -284,7 +284,7 @@ class ValidadorDocumentos:
                     "Data de emissão da matrícula NÃO localizada no final do documento "
                     "(canto inferior esquerdo). Conferir manualmente a data do fechamento "
                     "do oficial de registro e se a matrícula está dentro do prazo de "
-                    f"{self.matricula_validade_dias} dias."],
+                    f"{self.matricula_validade_dias} dias corridos."],
                 trecho_referencia=texto[-200:].replace("\n", " ").strip(),
                 metricas=metricas, origem=OrigemAnalise.DETERMINISTICO)
         dias = (ref - data_emissao).days
@@ -309,8 +309,8 @@ class ValidadorDocumentos:
             status=StatusValidacao.PENDENTE,
             itens_reprovados=[
                 f"Matrícula VENCIDA: emitida em {data_emissao:%d/%m/%Y} "
-                f"({dias} dias atrás) e o prazo de validade é de "
-                f"{self.matricula_validade_dias} dias a contar da emissão. "
+                f"({dias} dias corridos atrás) e o prazo de validade é de "
+                f"{self.matricula_validade_dias} dias corridos a contar da emissão. "
                 "Apresentar matrícula atualizada (emissão há menos de "
                 f"{self.matricula_validade_dias} dias)."],
             trecho_referencia=texto[-200:].replace("\n", " ").strip(),

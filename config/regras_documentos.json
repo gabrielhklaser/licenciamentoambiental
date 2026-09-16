@@ -4,8 +4,8 @@
   "revisado": true,
   "revisado_em": "2026-09-15",
   "nota_revisao": [
-    "PRAZO DA MATRÍCULA: o licenciador definiu validade de 90 DIAS contados da data de emissão, que fica no FINAL do documento (canto inferior esquerdo).",
-    "DIVERGÊNCIA SINALIZADA: o formulário oficial de Sítios de Lazer cita o Provimento nº 037/2018-CGJ com validade de MATRÍCULA de 30 dias. Aplicado o prazo do licenciador (90 dias); ajuste 'matricula_validade_dias' aqui se necessário.",
+    "PRAZO DA MATRÍCULA: o licenciador definiu validade de 90 DIAS CORRIDOS contados da data de emissão, que fica no FINAL do documento (canto inferior esquerdo).",
+    "DIVERGÊNCIA SINALIZADA (não aplicada): o formulário oficial de Sítios de Lazer cita o Provimento nº 037/2018-CGJ com validade de MATRÍCULA de 30 dias. O sistema APLICA o prazo do licenciador (90 dias corridos); ajuste 'matricula_validade_dias' aqui se necessário.",
     "A data de emissão é procurada na CAUDA do texto (últimos ~900 caracteres), onde ficam o fechamento do oficial de registro e a certificação digital (canto inferior esquerdo)."
   ],
   "parametros": {

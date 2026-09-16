@@ -109,7 +109,7 @@ def executar_analise(arquivos: list) -> None:
 
     Args:
         arquivos: lista de objetos com `.name` e `.getvalue()` (UploadedFile
-            do Streamlit ou wrapper do exemplo fictício).
+            do Streamlit).
     """
     validador = ValidadorDocumentos()
 
@@ -230,22 +230,13 @@ def pagina_upload() -> None:
                        f"por OCR quando disponível; sem OCR, entram para conferência "
                        f"manual com preview na etapa de análise.")
 
-    col1, col2, _ = st.columns([1.1, 1.0, 2.2])
-    with col1:
-        if st.button("🔍 Analisar documentação", type="primary",
-                     disabled=not arquivos,
-                     help="Executa a triagem, a conferência do checklist, a auditoria "
-                          "técnica pelos TRs e monta o quadro resumo."):
-            with st.spinner("Analisando a documentação (Fases 1 a 3)..."):
-                executar_analise(arquivos)
-            st.rerun()
-
-    with col2:
-        if st.button("🧪 Carregar exemplo fictício",
-                     help="Popula a análise com um processo LOR de demonstração "
-                          "(inclui matrícula vencida para exibir a validação de 90 dias)."):
-            carregar_exemplo_ficticio()
-            st.rerun()
+    if st.button("🔍 Analisar documentação", type="primary",
+                 disabled=not arquivos,
+                 help="Executa a triagem, a conferência do checklist, a auditoria "
+                      "técnica pelos TRs e monta o quadro resumo."):
+        with st.spinner("Analisando a documentação (Fases 1 a 3)..."):
+            executar_analise(arquivos)
+        st.rerun()
 
     if st.session_state.get("erro_formulario"):
         st.error(f"Falha ao interpretar o formulário: "
@@ -254,55 +245,6 @@ def pagina_upload() -> None:
     rodape_calibracao()
 
 
-def carregar_exemplo_ficticio() -> None:
-    """Processo LOR fictício empacotado em /exemplos (mock data)."""
-    class ArquivoFake:
-        """Simula o UploadedFile do Streamlit."""
-        def __init__(self, caminho: Path, conteudo: bytes | None = None):
-            self.name = caminho if isinstance(caminho, str) else caminho.name
-            self._bytes = conteudo if conteudo is not None else (
-                caminho.read_bytes() if isinstance(caminho, Path) else b"")
-
-        def getvalue(self) -> bytes:
-            return self._bytes
-
-    arquivos: list = []
-    formulario = RAIZ / "exemplos" / "formulario_LOR_medio_alto.htm"
-    arquivos.append(ArquivoFake(formulario))
-
-    # matrícula sintética com data de emissão ANTIGA -> dispara a validação
-    # de 90 dias (a data fica no final do documento, canto inferior esquerdo)
-    matricula_txt = (
-        "MATRÍCULA Nº 39.715 - Registro de Imóveis de Campo Bom/RS\n"
-        "Imóvel: estrada municipal, distrito sede. Área total: 12.000 m².\n"
-        "Propriedade de: Madeireira Vale do Sinos Ltda, CNPJ 12.345.678/0001-90.\n"
-        "ônus: hipoteca em favor do Banco X. Servidão de passagem.\n"
-        "Campo Bom, 05 de março de 2026.\n"
-        "Oficial de Registro de Imóveis\n"
-        "(documento assinado digitalmente conforme Lei 11.419/2006)")
-    arquivos.append(ArquivoFake("matricula_imovel_atualizada.txt",
-                                matricula_txt.encode("utf-8")))
-    for laudo in sorted((RAIZ / "exemplos" / "laudos").glob("*.pdf")):
-        arquivos.append(ArquivoFake(laudo))
-
-    # demais exigências do checklist entram como documentos virtuais legíveis
-    for nome in ["copia_cpf_cnpj.txt", "contrato_social.txt",
-                 "planta_localizacao.txt", "eiv_estudo_impacto_vizinhanca.txt",
-                 "art_responsavel_tecnico.txt", "copia_licenca_previa.txt",
-                 "projeto_executivo_sistema_tratamento_efluentes.txt",
-                 "pgrs.txt", "licenca_supressao_vegetacao.txt",
-                 "rca_relatorio_controle_ambiental.txt",
-                 "laudo_sistema_tratamento_efluentes.txt",
-                 "certificado_conclusao_pca.txt", "alvara_bombeiros.txt"]:
-        arquivos.append(ArquivoFake(nome, f"Documento: {nome}".encode("utf-8")))
-
-    st.session_state.anexados_texto = ""
-    executar_analise(arquivos)
-
-
-# ======================================================================
-# ETAPA 2 — Página de avaliação (quadro resumo + parecer técnico)
-# ======================================================================
 def pagina_analise() -> None:
     processo = st.session_state.get("processo") or {}
     dados = processo.get("dados", {})
@@ -333,7 +275,10 @@ def pagina_analise() -> None:
     # ENCAMINHAMENTO À SEMA), com a origem da leitura indicada
     c2.metric("Licença pleiteada", pleito.get("tipo_licenca") or "—")
     if pleito.get("metodo_deteccao"):
-        c2.caption(f"via {pleito['metodo_deteccao']}")
+        origem_leitura = f"via {pleito['metodo_deteccao']}"
+        if pleito.get("natureza"):
+            origem_leitura += f" • {pleito['natureza']}"
+        c2.caption(origem_leitura)
     c3.metric("Triagem", (dados.get("status_triagem") or "—").replace("_", " ").upper())
     c4.metric("Taxa (URMs)", _fmt_urm(financeiro.get("total_urm")))
     if financeiro.get("erro"):
@@ -378,7 +323,7 @@ def pagina_analise() -> None:
     if regras:
         selo = "" if regras.get("revisado") else " (🟡 rascunho)"
         st.caption(f"🗂️ Regras documentais: {regras.get('fonte')} — validade da "
-                   f"matrícula: {regras.get('validade_matricula_dias')} dias da "
+                   f"matrícula: {regras.get('validade_matricula_dias')} dias corridos da "
                    f"emissão{selo}")
 
     # --------------------------------------------------------------

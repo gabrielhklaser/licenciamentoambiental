@@ -13,7 +13,7 @@ from licenciamento.agente_administrativo import AgenteAdministrativo
 from licenciamento.agente_financeiro import AgenteFinanceiro
 from licenciamento.auditor_tecnico import (AuditorTecnico, MetricasRFO,
                                            MetricasSondagem)
-from licenciamento.parser_formulario import FormularioParser, normalizar as normalizar_texto, normalizar as normalizar_texto
+from licenciamento.parser_formulario import FormularioParser, normalizar as normalizar_texto
 
 RAIZ = Path(__file__).resolve().parents[1]
 EXEMPLOS = RAIZ / "exemplos"
@@ -530,3 +530,114 @@ def test_conferencia_arquivos_pela_listagem_do_motivo():
     # o fixture LIR não tem ART (hard constraint -> BLOQUEADO é esperado);
     # o escopo deste teste é a CONFERÊNCIA DOS ANEXOS pela listagem marcada
     assert resultado["status_geral"] in ("APROVADO", "PENDENTE", "BLOQUEADO")
+
+
+# ==============================================================================
+# MOTIVO em DUAS COLUNAS (Primeira licença | Renovação) com marca em CÍRCULO
+# ==============================================================================
+def test_motivo_tabela_2col_circulo_primeira_licenca():
+    """Formulário oficial: 1ª linha '[ X ] Primeira licença' | '[  ] Renovação'
+    e tipos marcados com círculo '( o )'. O parser lê a PRIMEIRA LINHA, define
+    a coluna ativa e depois o TIPO (LP); taxa cruza Porte/Potencial + CODRAM."""
+    dados = _parse("formulario_MOTIVO_2col_circulo.htm")
+    pleito = dados["pleito"]
+    assert pleito["tipo_licenca"] == "LP", pleito
+    assert pleito["natureza"] == "Primeira licença"
+    assert "tabela" in (pleito.get("metodo_deteccao") or "")
+    assert pleito["fases_componentes"] == ["LP"]
+    # listagem SOMENTE da fase marcada (LP: 5 itens; LI/LO fora)
+    docs = dados["documentos_exigidos"]["lista_deduplicada"]
+    assert len(docs) == 5
+    assert not any("Bombeiros" in d for d in docs)
+    # dados lidos para o cruzamento com o Manual de Taxas
+    emp = dados["empreendimento"]
+    assert emp["porte"] == "Pequeno" and emp["potencial_poluidor"] == "Baixo"
+    assert emp["area_intervencao_ha"] == pytest.approx(0.45)
+    assert emp["codram"]
+    fin = AgenteFinanceiro().calcular_do_parser(dados)
+    assert fin["total_urm"] == pytest.approx(72.10)
+
+
+def test_motivo_tabela_2col_circulo_renovacao():
+    """Marcação na coluna RENOVAÇÃO: natureza 'Renovação' e o TIPO lido na
+    coluna 2 (LI marcado) - a ordem das colunas não troca o tipo lido."""
+    html = (EXEMPLOS / "formulario_MOTIVO_2col_circulo.htm").read_text(encoding="utf-8")
+    html = html.replace("[ X ] <strong>Primeira licença</strong>",
+                        "[&nbsp;&nbsp;&nbsp;] Primeira licença")
+    html = html.replace("[&nbsp;&nbsp;&nbsp;] Renovação",
+                        "[ X ] <strong>Renovação</strong>", 1)
+    html = html.replace("""<td>( o ) Licença Prévia (LP)</td>
+    <td>(&nbsp;&nbsp;&nbsp;) Licença Prévia (LP)</td>""",
+                        """<td>(&nbsp;&nbsp;&nbsp;) Licença Prévia (LP)</td>
+    <td>(&nbsp;&nbsp;&nbsp;) Licença Prévia (LP)</td>""")
+    html = html.replace("""<td>(&nbsp;&nbsp;&nbsp;) Licença de Instalação (LI)</td>
+    <td>(&nbsp;&nbsp;&nbsp;) Licença de Instalação (LI)</td>""",
+                        """<td>(&nbsp;&nbsp;&nbsp;) Licença de Instalação (LI)</td>
+    <td>( o ) Licença de Instalação (LI)</td>""")
+    dados = FormularioParser(conteudo_html=html).gerar_json()
+    pleito = dados["pleito"]
+    assert pleito["tipo_licenca"] == "LI", pleito
+    assert pleito["natureza"] == "Renovação"
+    assert pleito["fases_componentes"] == ["LI"]
+
+
+def test_matricula_validade_90_dias_corridos():
+    """Validade da matrícula = 90 DIAS CORRIDOS da emissão (não 30)."""
+    from datetime import date, timedelta
+    from licenciamento.validador_documentos import ValidadorDocumentos
+    validador = ValidadorDocumentos()
+    assert validador.matricula_validade_dias == 90
+    ref = date(2026, 9, 16)
+
+    def texto_com_emissao(dias: int) -> str:
+        emissao = ref - timedelta(days=dias)
+        meses = {1: "janeiro", 2: "fevereiro", 3: "março", 4: "abril", 5: "maio",
+                 6: "junho", 7: "julho", 8: "agosto", 9: "setembro", 10: "outubro",
+                 11: "novembro", 12: "dezembro"}
+        data_txt = f"{emissao.day} de {meses[emissao.month]} de {emissao.year}"
+        return ("MATRÍCULA Nº 41.203 - Registro de Imóveis de Campo Bom/RS\n"
+                "Imóvel: Rua Coronel João Corrêa, 215.\n"
+                f"Campo Bom, {data_txt}.\n"
+                "Oficial de Registro de Imóveis\n"
+                "(documento assinado digitalmente)")
+
+    dentro = validador.validar_matricula("matricula.txt", texto_com_emissao(89), ref)
+    assert dentro.status.value == "CONFORME" or dentro.status.name == "CONFORME"
+    vencida = validador.validar_matricula("matricula.txt", texto_com_emissao(91), ref)
+    msg = " ".join(vencida.itens_reprovados)
+    assert "90" in msg and "corridos" in msg
+    # a norma citada também declara 'dias corridos'
+    assert "corridos" in vencida.norma_tr
+
+
+def test_sem_botao_exemplo_na_etapa_1():
+    """Etapa 1 fica SOMENTE com o upload: sem botão 'Carregar exemplo fictício'."""
+    from streamlit.testing.v1 import AppTest
+    at = AppTest.from_file(str(RAIZ / "app.py"), default_timeout=120).run()
+    assert not at.exception
+    rotulos = [b.label for b in at.button]
+    assert not any("exemplo" in r.lower() for r in rotulos), rotulos
+    assert any("Analisar" in r for r in rotulos), rotulos
+
+
+def test_painel_etapa2_2col_circulo_lp_e_taxa():
+    """PONTE A PONTE do formulário do licenciador (2 colunas, círculo '( o )'):
+    o painel da Etapa 2 mostra LP (não LOR) com taxa 72,10 URM e a natureza."""
+    from streamlit.testing.v1 import AppTest
+    at = AppTest.from_file(str(RAIZ / "app.py"), default_timeout=180)
+    at.run()
+    assert not at.exception
+    form_bytes = (EXEMPLOS / "formulario_MOTIVO_2col_circulo.htm").read_bytes()
+    at.file_uploader[0].set_value(
+        [("formulario_2col.htm", form_bytes, "text/html")])
+    at.run()
+    assert not at.exception
+    [b for b in at.button if "Analisar" in b.label][0].click()
+    at.run()
+    assert not at.exception, [e.value[:300] for e in at.exception]
+    metricas = {m.label: m.value for m in at.metric}
+    assert metricas.get("Licença pleiteada") == "LP", metricas
+    assert metricas.get("Taxa (URMs)") == "72,10", metricas
+    captions = " | ".join(c.value for c in at.caption)
+    assert "Primeira licença" in captions
+    assert "tabela Primeira licença/Renovação" in captions

@@ -227,12 +227,23 @@ class FormularioParser:
         r"IDENTIFICACAO\s+DO\s+PLEITO", re.I)
 
     # Marcadores de marcação em texto (formulários convertidos de Word):
-    # (X) ( x ) [x] (✓) ☒ ✔ ☑ - logo antes do rótulo da opção
+    # (X) ( x ) [x] (o) ( O ) (✓) ☒ ✔ ● - logo antes do rótulo da opção
+    # ('o'/'O' = CÍRCULO marcado no formulário oficial; '○' vazio não marca)
     REGEX_MARCADOR_MARCADO = re.compile(
-        r"[(\[\{]\s*[xX✓☒✔☑■]\s*[)\]\}]|[✓☒✔☑■]")
+        r"[(\[\{]\s*[xXoO✓☒✔☑■●◉⬤⊙]\s*[)\]\}]|[✓☒✔☑■●◉⬤⊙]")
 
     # Marca isolada em célula própria da tabela: <td>X</td><td>Licença Prévia</td>
-    CELULAS_MARCA = {"X", "XX", "(X)", "( X )", "[X]", "[ X ]", "✓", "☒", "✔", "■"}
+    # 'o'/'O' = marca em CÍRCULO '( o )' (radio impresso do formulário oficial);
+    # círculos CHEIOS (●◉⬤⊙) = marcados; o círculo VAZIO '○' NÃO é marca
+    CELULAS_MARCA = {"X", "XX", "O", "(X)", "( X )", "(O)", "( O )", "[X]",
+                     "[ X ]", "[O]", "[ O ]", "✓", "☒", "✔", "■",
+                     "●", "◉", "⬤", "⊙"}
+
+    # Cabeçalhos da tabela de MOTIVO em DUAS COLUNAS (formulário oficial SEMA):
+    # coluna 1 = 'Primeira licença', coluna 2 = 'Renovação' (tipos marcados com
+    # círculo '( o )' logo abaixo do cabeçalho da coluna ativa)
+    REGEX_PRIMEIRA_LICENCA = re.compile(r"PRIMEIRAS?\s+LICENCAS?\b", re.I)
+    REGEX_RENOVACAO = re.compile(r"RENOVACA\w*", re.I)
 
     # Porte/Potencial combinados num único campo: 'Pequeno/Baixo'
     RE_PORTE_POTENCIAL = re.compile(
@@ -706,6 +717,107 @@ class FormularioParser:
             self._registrar_falha("_texto_da_marcacao", str(exc))
         return None
 
+    def _detectar_pleito_tabela_natureza(self) -> Optional[dict[str, Any]]:
+        """Tabela oficial do MOTIVO em DUAS COLUNAS: a 1ª linha traz os checkboxes
+        '[ ] Primeira licença' (coluna 1) e '[ ] Renovação' (coluna 2) e, logo
+        abaixo de cada um, os tipos de licença marcados com círculo '( o )'.
+
+        Algoritmo pedido pelo licenciador: ler a PRIMEIRA LINHA para saber em
+        qual das duas colunas a marcação está (Primeira licença x Renovação) e
+        só depois ler o TIPO de licença marcado nessa coluna. Regras:
+          - cabeçalho marcado define a coluna ativa e a natureza do pleito;
+          - sem cabeçalho marcado, a coluna ativa é a única que contém marca
+            nos tipos (natureza inferida da posição); duas colunas marcadas
+            com cabeçalhos vazios = ambíguo (None + conferência manual).
+        Retorna {'tipo_licenca', 'descricao_pleito', 'metodo', 'natureza'} ou None.
+        """
+        try:
+            if not self.soup:
+                return None
+            for tabela in self.soup.find_all("table"):
+                texto_tabela = normalizar(tabela.get_text(" "))
+                if not (self.REGEX_PRIMEIRA_LICENCA.search(texto_tabela)
+                        and self.REGEX_RENOVACAO.search(texto_tabela)):
+                    continue  # não é a tabela do motivo em 2 colunas
+                linhas = tabela.find_all("tr")
+                if len(linhas) < 2:
+                    continue
+                celulas_cab = linhas[0].find_all(["td", "th"])
+                col_primeira = col_renov = None
+                coluna_ativa: Optional[int] = None
+                natureza: Optional[str] = None
+                for i, celula in enumerate(celulas_cab):
+                    t = normalizar(celula.get_text(" ", strip=True))
+                    if self.REGEX_PRIMEIRA_LICENCA.search(t):
+                        col_primeira = i
+                        if self._marca_em_celula(celula):
+                            coluna_ativa, natureza = i, "Primeira licença"
+                    elif self.REGEX_RENOVACAO.search(t):
+                        col_renov = i
+                        if self._marca_em_celula(celula):
+                            coluna_ativa, natureza = i, "Renovação"
+                # ---- tipos marcados por coluna (para inferência/ambiguidade) --
+                marcadas: dict[int, tuple[int, Any]] = {}
+                for ri, linha_tr in enumerate(linhas[1:], start=1):
+                    celulas = linha_tr.find_all(["td", "th"])
+                    for ci, celula in enumerate(celulas):
+                        if self._marca_em_celula(celula) and self._pleito_no_texto(
+                                celula.get_text(" ", strip=True)):
+                            marcadas.setdefault(ci, (ri, celula))
+                if coluna_ativa is None:
+                    ativas = sorted(marcadas)
+                    if len(ativas) == 1:
+                        coluna_ativa = ativas[0]
+                        natureza = ("Primeira licença"
+                                    if coluna_ativa == col_primeira else "Renovação")
+                    elif len(ativas) > 1:
+                        self._registrar_falha(
+                            "_detectar_pleito_tabela_natureza",
+                            "tabela Primeira licença/Renovação com marcações nas DUAS "
+                            "colunas e cabeçalhos sem marca - conferir manualmente")
+                        return None
+                if coluna_ativa is None or coluna_ativa not in marcadas:
+                    continue  # nada marcado nesta tabela; tenta as demais camadas
+                _, celula_tipo = marcadas[coluna_ativa]
+                descricao = celula_tipo.get_text(" ", strip=True)[:160]
+                for sigla, padrao in self.PLEITOS:
+                    if padrao.search(normalizar(descricao)):
+                        return {"tipo_licenca": sigla,
+                                "descricao_pleito": descricao,
+                                "metodo": "marcação no formulário (tabela "
+                                          "Primeira licença/Renovação)",
+                                "natureza": natureza}
+        except Exception as exc:  # noqa: BLE001
+            self._registrar_falha("_detectar_pleito_tabela_natureza", str(exc))
+        return None
+
+    def _marca_em_celula(self, celula) -> bool:
+        """Há marca de seleção na célula? (input checked, texto '( X )'/'( o )',
+        glyph cheio, ou célula que É a marca isolada)."""
+        try:
+            for entrada in celula.find_all("input",
+                                           attrs={"type": ["checkbox", "radio"]}):
+                if entrada.has_attr("checked"):
+                    return True
+            texto = celula.get_text(" ", strip=True)
+            if not texto:
+                return False
+            if texto.upper().strip("()[] ") in self.CELULAS_MARCA:
+                return True
+            return bool(self.REGEX_MARCADOR_MARCADO.search(texto))
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _pleito_no_texto(self, texto: str) -> Optional[str]:
+        """Sigla do pleito citado no texto da célula (LP/LI/LO/LIR/LOR...)."""
+        try:
+            for sigla, padrao in self.PLEITOS:
+                if padrao.search(normalizar(texto)):
+                    return sigla
+        except Exception:  # noqa: BLE001
+            return None
+        return None
+
     def _linhas_secao_pleito(self) -> Optional[list[str]]:
         """Linhas do TEXTO PLANO entre o título da seção do pleito (MOTIVO DO
         ENCAMINHAMENTO À SEMA e variantes) e o próximo cabeçalho/seção.
@@ -733,6 +845,9 @@ class FormularioParser:
         lê qual opção está MARCADA no formulário.
 
         Três representações de marcação reconhecidas (dupla checagem):
+          0) tabela oficial em DUAS colunas 'Primeira licença' x 'Renovação'
+             (tipos marcados com círculo '( o )' na coluna ativa - ver
+             _detectar_pleito_tabela_natureza);
           a) checkbox/radio com atributo `checked` (HTML interativo);
           b) célula isolada com a marca: <td>X</td><td>Licença Prévia (LP)</td>;
           c) marcador textual junto ao rótulo: '(X) Licença Prévia', '[x] LOR',
@@ -744,6 +859,11 @@ class FormularioParser:
         Retorna {'tipo_licenca', 'descricao_pleito', 'metodo'} ou None.
         """
         try:
+            # ---- (0) DOM: tabela oficial 2 colunas Primeira/Renovação ----
+            tabela_natureza = self._detectar_pleito_tabela_natureza()
+            if tabela_natureza:
+                return tabela_natureza
+
             # ---- (a) DOM: checkbox/radio MARCADO na seção ----------------
             if self.soup:
                 ancora = None
@@ -802,6 +922,22 @@ class FormularioParser:
             self._registrar_falha("_detectar_pleito_por_marcacao", str(exc))
         return None
 
+    def _natureza_da_marcacao(self) -> Optional[str]:
+        """Natureza do pleito ('Primeira licença'/'Renovação') lida da marcação
+        dos cabeçalhos na seção do MOTIVO (formulários fora da tabela 2 colunas)."""
+        try:
+            for linha in (self._linhas_secao_pleito() or []):
+                if not self.REGEX_MARCADOR_MARCADO.search(linha):
+                    continue  # só linhas com marca identificam a natureza
+                n = normalizar(linha)
+                if self.REGEX_PRIMEIRA_LICENCA.search(n):
+                    return "Primeira licença"
+                if self.REGEX_RENOVACAO.search(n):
+                    return "Renovação"
+        except Exception as exc:  # noqa: BLE001
+            self._registrar_falha("_natureza_da_marcacao", str(exc))
+        return None
+
     def extrair_tipo_licenca(self) -> dict[str, Any]:
         """Identifica a espécie do pleito: LP, LI, LO, LIR, LOR, Licença Única, Alvará Florestal, Autorização ou Declaração.
 
@@ -811,6 +947,7 @@ class FormularioParser:
         """
         resultado: dict[str, Any] = {
             "tipo_licenca": None, "descricao_pleito": None, "fases_componentes": [],
+            "natureza": None,
             "metodo_deteccao": None,
         }
         try:
@@ -820,6 +957,12 @@ class FormularioParser:
                 resultado["tipo_licenca"] = marcacao["tipo_licenca"]
                 resultado["descricao_pleito"] = marcacao["descricao_pleito"]
                 resultado["metodo_deteccao"] = marcacao["metodo"]
+                resultado["natureza"] = marcacao.get("natureza")
+
+            # Natureza do pleito (Primeira licença x Renovação) lida dos
+            # cabeçalhos da seção, quando a camada 0 não a forneceu
+            if resultado["tipo_licenca"] and resultado.get("natureza") is None:
+                resultado["natureza"] = self._natureza_da_marcacao()
 
             # 1) Campo explícito do formulário (rótulo 'Tipo de Licença' / 'Espécie do Pleito')
             if resultado["tipo_licenca"] is None:
@@ -832,15 +975,6 @@ class FormularioParser:
                             resultado["tipo_licenca"] = sigla
                             resultado["metodo_deteccao"] = "campo 'Tipo de Licença'"
                             break
-            # 1) Campo explícito do formulário (rótulo 'Tipo de Licença' / 'Espécie do Pleito')
-            descricao = self._buscar_valor(self.ROTULOS["tipo_licenca"])
-            if descricao:
-                resultado["descricao_pleito"] = descricao.strip()
-                desc_norm = normalizar(descricao)
-                for sigla, padrao in self.PLEITOS:
-                    if padrao.search(desc_norm):
-                        resultado["tipo_licenca"] = sigla
-                        break
 
             # 2) Fallback: 'Pleito: ...' no texto plano
             if resultado["tipo_licenca"] is None:
