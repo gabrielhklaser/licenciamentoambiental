@@ -190,7 +190,13 @@ class ValidadorDocumentos:
 
         O NOME do arquivo tem peso maior (padrão de nomeação exigido pela
         SEMA: 'documentos devidamente nomeados de acordo com seu conteúdo').
+        Antes de classificar, consulta o APRENDIZADO persistente (nomes que o
+        conteúdo já confirmou em processos anteriores).
         """
+        from licenciamento.identificador_documentos import tipo_aprendido
+        aprendido = tipo_aprendido(nome_arquivo)
+        if aprendido:
+            return aprendido
         nome_n = normalizar(Path(nome_arquivo).stem.replace("_", " ").replace("-", " "))
         texto_n = normalizar(texto[:4000])
         melhor: tuple[int, Optional[str]] = (0, None)

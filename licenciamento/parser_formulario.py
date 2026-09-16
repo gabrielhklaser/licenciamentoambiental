@@ -234,20 +234,30 @@ class FormularioParser:
     # (X) ( x ) [x] (o) ( O ) (✓) ☒ ✔ ● - logo antes do rótulo da opção
     # ('o'/'O' = CÍRCULO marcado no formulário oficial; '○' vazio não marca)
     REGEX_MARCADOR_MARCADO = re.compile(
-        r"[(\[\{]\s*[xXoO✓☒✔☑■●◉⬤⊙]\s*[)\]\}]|[✓☒✔☑■●◉⬤⊙]")
+        r"[(\[\{]\s*[xXoO✓☒✔☑■●◉⬤⊙]\s*[)\]\}]|[✓☒✔☑■●◉⬤⊙þÞýÝüÜûÛÐð]")
+    # glifos de caixa MARCADA que o Word exporta (fontes Wingdings/Symbol):
+    # þ = caixa com visto; ý/Ð = caixa com X; ü/û = variações
 
     # Marca isolada em célula própria da tabela: <td>X</td><td>Licença Prévia</td>
     # 'o'/'O' = marca em CÍRCULO '( o )' (radio impresso do formulário oficial);
     # círculos CHEIOS (●◉⬤⊙) = marcados; o círculo VAZIO '○' NÃO é marca
     CELULAS_MARCA = {"X", "XX", "O", "(X)", "( X )", "(O)", "( O )", "[X]",
                      "[ X ]", "[O]", "[ O ]", "✓", "☒", "✔", "■",
-                     "●", "◉", "⬤", "⊙"}
+                     "●", "◉", "⬤", "⊙", "þ", "Þ", "ý", "Ý", "ü", "Ü",
+                     "û", "Û", "Ð", "ð"}
 
     # Cabeçalhos da tabela de MOTIVO em DUAS COLUNAS (formulário oficial SEMA):
     # coluna 1 = 'Primeira licença', coluna 2 = 'Renovação' (tipos marcados com
     # círculo '( o )' logo abaixo do cabeçalho da coluna ativa)
     REGEX_PRIMEIRA_LICENCA = re.compile(r"PRIMEIRAS?\s+LICENCAS?\b", re.I)
     REGEX_RENOVACAO = re.compile(r"RENOVACA\w*", re.I)
+
+    # Linha que contém APENAS o símbolo de marcação: o get_text() do Word
+    # separa o <span> do símbolo ('( X )', 'o', 'þ', '●'...) do rótulo, que
+    # cai na LINHA SEGUINTE - os dois precisam ser reattachados para a leitura
+    RE_SIMBOLO_SOZINHO = re.compile(
+        r"^(?:[(\[\{]\s*[^\w\s]{0,3}\s*[)\]\}]"
+        r"|[oOxX✓☒✔☑■●◉⬤⊙þÞýÝüÜûÛÐð□☐])$")
 
     # Porte/Potencial combinados num único campo: 'Pequeno/Baixo'
     RE_PORTE_POTENCIAL = re.compile(
@@ -848,31 +858,50 @@ class FormularioParser:
                 return secao
         return None
 
+    def _linhas_opcoes_pleito(self) -> list[str]:
+        """Linhas da seção do motivo com os SÍMBOLOS DE MARCAÇÃO reattachados
+        ao rótulo: a extração de texto do HTML costuma quebrar '( o )' / 'þ'
+        (span isolado do Word) numa linha e o nome da licença na seguinte."""
+        saida: list[str] = []
+        pendente = ""
+        for linha in (self._linhas_secao_pleito() or []):
+            limpa = linha.strip()
+            if not limpa:
+                continue
+            if self.RE_SIMBOLO_SOZINHO.match(limpa):
+                pendente = f"{pendente} {limpa}".strip()
+                continue
+            saida.append(f"{pendente} {limpa}".strip() if pendente
+                         else linha.rstrip())
+            pendente = ""
+        if pendente:
+            saida.append(pendente)
+        return saida
+
     def _detectar_pleito_por_marcacao(self) -> Optional[dict[str, Any]]:
-        """Localiza a seção do MOTIVO DO ENCAMINHAMENTO À SEMA (ou similar) e
-        lê qual opção está MARCADA no formulário.
+        """Lê qual opção está MARCADA na seção do MOTIVO DO ENCAMINHAMENTO.
 
-        Três representações de marcação reconhecidas (dupla checagem):
-          0) tabela oficial em DUAS colunas 'Primeira licença' x 'Renovação'
-             (tipos marcados com círculo '( o )' na coluna ativa - ver
-             _detectar_pleito_tabela_natureza);
-          a) checkbox/radio com atributo `checked` (HTML interativo);
-          b) célula isolada com a marca: <td>X</td><td>Licença Prévia (LP)</td>;
-          c) marcador textual junto ao rótulo: '(X) Licença Prévia', '[x] LOR',
-             '☒ ...', '■ ...' (formulários convertidos de Word) - inclusive
-             várias marcações na mesma linha (tabelas de 2 colunas).
+        Estratégia em camadas (todas COLETAM candidatos; a decisão é central):
+          0) tabela oficial 2 colunas 'Primeira licença' x 'Renovação';
+          a) checkbox/radio com `checked` no DOM;
+          b) célula isolada com o símbolo da marca ('X', '( o )', 'þ', '●'...);
+          c) marcador textual junto ao rótulo ('(X) Licença Prévia', 'þ LOR');
+          d) DIFERENÇA DE SÍMBOLOS: entre as linhas de opções, o símbolo
+             MINORITÁRIO é a marca (o formulário marca só uma opção) - cobre
+             qualquer esquema de símbolos, inclusive Wingdings do Word.
 
-        NUNCA infere o tipo apenas pela presença do rótulo: linha sem marca é
-        ignorada (a lista de opções cita TODOS os tipos de licença).
-        Retorna {'tipo_licenca', 'descricao_pleito', 'metodo'} ou None.
+        NUNCA infere o tipo pela presença do rótulo: linha sem marca não é
+        candidata. Várias opções com a mesma marca = ambíguo (None + aviso).
         """
         try:
-            # ---- (0) DOM: tabela oficial 2 colunas Primeira/Renovação ----
+            candidatos: list[dict[str, Any]] = []
+
+            # ---- (0) tabela oficial Primeira licença x Renovação ---------
             tabela_natureza = self._detectar_pleito_tabela_natureza()
             if tabela_natureza:
                 return tabela_natureza
 
-            # ---- (a) DOM: checkbox/radio MARCADO na seção ----------------
+            # ---- (a) DOM: checkbox/radio MARCADO -------------------------
             if self.soup:
                 ancora = None
                 for tag in self.soup.find_all(["h1", "h2", "h3", "h4", "h5",
@@ -889,46 +918,136 @@ class FormularioParser:
                         if entrada.has_attr("checked"):
                             texto = self._texto_da_marcacao(entrada)
                             if texto:
-                                for sigla, padrao in self.PLEITOS:
-                                    if padrao.search(normalizar(texto)):
-                                        return {"tipo_licenca": sigla,
-                                                "descricao_pleito": texto.strip(),
-                                                "metodo": "marcação no formulário "
-                                                          "(checkbox/radio)"}
-                # ---- (b) DOM: célula isolada com a marca -----------------
-                for contêiner in secao_dom:
-                    for celula in contêiner.find_all(["td", "th", "li"]):
-                        if celula.get_text(strip=True).upper().strip("()[] ") \
-                                not in self.CELULAS_MARCA:
-                            continue
-                        linha = (celula.find_parent("tr")
-                                 or celula.find_parent("li")
-                                 or celula.find_parent("p"))
-                        if linha is None:
-                            continue
-                        texto_linha = linha.get_text(" ", strip=True)
-                        for sigla, padrao in self.PLEITOS:
-                            if padrao.search(normalizar(texto_linha)):
-                                return {"tipo_licenca": sigla,
-                                        "descricao_pleito": texto_linha.strip()[:160],
+                                sigla = self._pleito_no_texto(texto)
+                                if sigla:
+                                    candidatos.append({
+                                        "tipo_licenca": sigla,
+                                        "descricao_pleito": texto.strip()[:160],
                                         "metodo": "marcação no formulário "
-                                                  "(célula 'X')"}
+                                                  "(checkbox/radio)",
+                                        "marca": "checked"})
 
-            # ---- (c) TEXTO: marcadores '(X)', '☒', '■' nas linhas -------
-            # split por marcador: só o segmento APÓS cada marca é candidato
-            # (o '(  )' não marcado fica no segmento anterior e é ignorado)
-            for linha in (self._linhas_secao_pleito() or []):
-                if not self.REGEX_MARCADOR_MARCADO.search(linha):
-                    continue  # linha sem NENHUMA marca (ex.: opções vazias)
-                for segmento in self.REGEX_MARCADOR_MARCADO.split(linha)[1:]:
-                    for sigla, padrao in self.PLEITOS:
-                        if padrao.search(normalizar(segmento)):
-                            return {"tipo_licenca": sigla,
-                                    "descricao_pleito": linha.strip()[:160],
-                                    "metodo": "marcação no formulário (texto)"}
+                # ---- (b) DOM: célula isolada com o símbolo da marca ------
+                for contêiner in secao_dom:
+                    for linha_tr in contêiner.find_all(["tr", "li", "p"]):
+                        marca_token = None
+                        for celula in linha_tr.find_all(["td", "th"]):
+                            txt = celula.get_text(" ", strip=True)
+                            if txt and txt.upper().strip("()[] ") \
+                                    in self.CELULAS_MARCA:
+                                marca_token = txt.upper().strip()
+                                break
+                            # símbolo INLINE na própria célula do rótulo
+                            # ('þ Licença Prévia', '( X ) Licença Única')
+                            inline = (self.REGEX_MARCADOR_MARCADO
+                                      .search(txt) if txt else None)
+                            if inline and self._pleito_no_texto(txt):
+                                marca_token = inline.group(0).upper().strip()
+                                break
+                        if marca_token is None:
+                            continue  # linha sem marca identificável
+                        texto_linha = linha_tr.get_text(" ", strip=True)
+                        sigla = self._pleito_no_texto(texto_linha)
+                        if sigla:
+                            candidatos.append({
+                                "tipo_licenca": sigla,
+                                "descricao_pleito": texto_linha.strip()[:160],
+                                "metodo": "marcação no formulário "
+                                          "(célula com símbolo)",
+                                "marca": marca_token})
+
+            # ---- (c) TEXTO: marcadores afirmativos junto ao rótulo ------
+            # (linhas com o símbolo REATTACHADO ao rótulo - spans do Word)
+            linhas_secao = self._linhas_opcoes_pleito()
+            for linha in linhas_secao:
+                marcas = list(self.REGEX_MARCADOR_MARCADO.finditer(linha))
+                for i, m in enumerate(marcas):
+                    fim = marcas[i + 1].start() if i + 1 < len(marcas) else len(linha)
+                    segmento = linha[m.end():fim]
+                    sigla = self._pleito_no_texto(segmento)
+                    if sigla:
+                        candidatos.append({
+                            "tipo_licenca": sigla,
+                            "descricao_pleito": linha.strip()[:160],
+                            "metodo": "marcação no formulário (texto)",
+                            "marca": m.group(0).upper().strip()})
+
+            # ---- (d) DIFERENÇA DE SÍMBOLOS entre as linhas de opções ----
+            candidatos.extend(self._candidatos_por_diferenca(linhas_secao))
+
+            return self._decidir_candidatos(candidatos)
         except Exception as exc:  # noqa: BLE001
             self._registrar_falha("_detectar_pleito_por_marcacao", str(exc))
         return None
+
+    def _candidatos_por_diferenca(self, linhas: list[str]) -> list[dict[str, Any]]:
+        """Camada 'diferença de símbolos': coleta o PREFIXO de cada linha de
+        opção (tudo antes do nome do pleito) e aponta a linha cujo símbolo é
+        MINORITÁRIO - o formulário marca apenas uma opção, então o símbolo
+        que difere da maioria é a marca (funciona com '( o )', 'þ', '●'...).
+        Exige: >= 3 linhas de opções, exatamente 2 símbolos distintos e o
+        minoritário aparecendo no máx. 2 vezes."""
+        candidatos: list[dict[str, Any]] = []
+        try:
+            prefixos: dict[str, list[str]] = {}
+            for linha in linhas:
+                inicio_nome: Optional[int] = None
+                for _, padrao in self.PLEITOS:
+                    m = padrao.search(linha)
+                    if m and (inicio_nome is None or m.start() < inicio_nome):
+                        inicio_nome = m.start()
+                if inicio_nome is None or inicio_nome == 0:
+                    continue  # não é linha de opção (ou não tem prefixo)
+                token = re.sub(r"\s+", "", linha[:inicio_nome])
+                if not token:
+                    continue  # linha de opção sem símbolo algum
+                prefixos.setdefault(token, []).append(linha)
+            if len(prefixos) == 2 and sum(len(v) for v in prefixos.values()) >= 3:
+                (tok_maj, linhas_maj), (tok_min, linhas_min) = sorted(
+                    prefixos.items(), key=lambda kv: len(kv[1]))
+                if len(linhas_min) <= 2 and len(linhas_min) < len(linhas_maj):
+                    for linha in linhas_min:
+                        sigla = self._pleito_no_texto(linha)
+                        if sigla:
+                            candidatos.append({
+                                "tipo_licenca": sigla,
+                                "descricao_pleito": linha.strip()[:160],
+                                "metodo": "marcação no formulário "
+                                          "(símbolo diferente das demais)",
+                                "marca": tok_min.upper()})
+        except Exception as exc:  # noqa: BLE001
+            self._registrar_falha("_candidatos_por_diferenca", str(exc))
+        return candidatos
+
+    def _decidir_candidatos(self, candidatos: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        """Decisão central das camadas de marcação (dupla checagem).
+        1 candidato -> aceito; vários com a MESMA sigla -> aceito; vários com
+        siglas distintas -> o símbolo MINORITÁRIO vence (a marca é única);
+        persistindo a ambiguidade -> None + aviso de conferência manual."""
+        try:
+            if not candidatos:
+                return None
+            siglas = {c["tipo_licenca"] for c in candidatos}
+            if len(candidatos) == 1 or len(siglas) == 1:
+                return candidatos[0]
+            contagem: dict[str, int] = {}
+            for c in candidatos:
+                contagem[c["marca"]] = contagem.get(c["marca"], 0) + 1
+            if len(contagem) == 2:
+                ordenados = sorted(contagem.items(), key=lambda kv: -kv[1])
+                (tok_maj, n_maj), (tok_min, n_min) = ordenados
+                if n_min < n_maj and n_min <= 2 and tok_min.strip("()[] "):
+                    minoritarios = [c for c in candidatos if c["marca"] == tok_min]
+                    if len(minoritarios) == 1:
+                        return minoritarios[0]
+            self._registrar_falha(
+                "extrair_tipo_licenca",
+                "mais de uma opção da seção do motivo do encaminhamento "
+                "apresenta marca - conferir o tipo de licença manualmente")
+            return None
+        except Exception as exc:  # noqa: BLE001
+            self._registrar_falha("_decidir_candidatos", str(exc))
+            return None
 
     def _natureza_da_marcacao(self) -> Optional[str]:
         """Natureza do pleito ('Primeira licença'/'Renovação') lida da marcação

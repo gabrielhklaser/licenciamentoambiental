@@ -143,11 +143,13 @@ def executar_analise(arquivos: list) -> None:
 
     # ---- Extração de texto e análise por documento -------------------
     arquivos_analise: list[dict] = []
+    textos_anexos: dict[str, str] = {}
     analises: dict[str, object] = {}
     resultados_tecnicos: list = []
     auditor = AuditorTecnico()
     for arq in documentos:
         texto = validador.extrair_texto(arq.name, arq.getvalue())
+        textos_anexos[arq.name] = texto
         registro = {"nome": arq.name, "texto": texto,
                     "tipo": validador.identificar_tipo(arq.name, texto)}
         arquivos_analise.append(registro)
@@ -168,7 +170,8 @@ def executar_analise(arquivos: list) -> None:
 
     # ---- Fase 2: agentes administrativo e financeiro -----------------
     nomes_anexos = [a.name for a in arquivos]
-    admin = AgenteAdministrativo().auditar(dados, nomes_anexos) if dados else {
+    admin = AgenteAdministrativo().auditar(
+        dados, nomes_anexos, textos_anexados=textos_anexos) if dados else {
         "status_geral": "BLOQUEADO",
         "bloqueios": ["Formulário .htm/.html do requerimento não apresentado."],
         "resumo": {"total_ok": 0, "total_pendentes": 0},
@@ -397,6 +400,15 @@ def pagina_analise() -> None:
                 st.warning(f"🟡 {pend.get('documento')} — {pend.get('justificativa', '')}")
             else:
                 st.warning(f"🟡 {pend}")
+        # Reconhecimento inteligente: documento identificado pelo CONTEÚDO ou
+        # pelo APRENDIZADO (o nome do arquivo não casou direto)
+        for exigido, origem in (admin.get("origem_ok") or {}).items():
+            estrela = "🧠 aprendido" if origem.get("via") == "aprendido" else "📄 conteúdo"
+            st.info(f"{estrela}: '{origem.get('anexo')}' reconhecido como "
+                    f"**{exigido}** (o nome do arquivo não casou direto).")
+        for aviso in admin.get("avisos") or []:
+            if "COMPLETADO" in aviso:
+                st.info("🔗 " + aviso)
 
     if financeiro:
         with st.expander("💰 Taxa de licenciamento (URMs)"):

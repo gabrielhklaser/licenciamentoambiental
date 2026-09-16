@@ -28,6 +28,8 @@ from typing import Any, Optional
 
 import logging
 
+from licenciamento.identificador_documentos import IdentificadorDocumentos
+
 logger = logging.getLogger("licenciamento.agente_administrativo")
 
 
@@ -36,6 +38,23 @@ class AgenteAdministrativo:
 
     LIMIAR_SIMILARIDADE = 0.82       # tolerância de nomenclatura entre exigido x anexado
     LIMIAR_PALAVRAS_CHAVE = 0.5      # % mínima de palavras-chave do exigido presentes no anexo
+
+    # Valor extraído do CONTEÚDO de cada tipo de documento para completar
+    # campos críticos ausentes no formulário (o anexo é a fonte da verdade)
+    VALOR_NO_DOCUMENTO: dict[str, tuple[list[str], re.Pattern, str]] = {
+        "MATRICULA_IMOVEL": (
+            ["empreendimento", "matricula_imovel"],
+            re.compile(r"MATR[IÍ]CULA\s*N[ºo°.]?\s*([\d.\-]{4,})", re.I),
+            "Matrícula do imóvel"),
+        "CNPJ": (
+            ["empreendedor", "cpf_cnpj"],
+            re.compile(r"\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}"),
+            "CPF/CNPJ do empreendedor"),
+        "ART": (
+            ["responsavel_tecnico", "registro_art"],
+            re.compile(r"ART\s*N?[ºo°.]?\s*([A-Z0-9/\-]{6,})", re.I),
+            "Anotação de Responsabilidade Técnica (ART)"),
+    }
 
     # Hard constraints: campo no JSON -> rótulo humano para o relatório
     CAMPOS_CRITICOS: list[tuple[list[str], str]] = [
@@ -55,6 +74,44 @@ class AgenteAdministrativo:
         texto = "".join(c for c in texto if not unicodedata.combining(c))
         texto = re.sub(r"[^\w\s]", " ", texto.lower())
         return re.sub(r"\s+", " ", texto).strip()
+
+    def _completar_campos_criticos(self, dados_processo: dict,
+                                   anexados: list[str],
+                                   textos: dict[str, str],
+                                   identificador: IdentificadorDocumentos) -> list[str]:
+        """Recupera campos críticos ausentes no formulário a partir dos anexos:
+        reconhece o documento (nome -> aprendido -> conteúdo) e extrai o valor
+        do próprio documento. Devolve os avisos de completamento."""
+        completados: list[str] = []
+        for tipo, (caminho, padrao, rotulo) in self.VALOR_NO_DOCUMENTO.items():
+            valor: Any = dados_processo
+            try:
+                for chave in caminho:
+                    valor = (valor or {}).get(chave)
+            except AttributeError:
+                valor = None
+            if valor and str(valor).strip():
+                continue  # o formulário já trouxe o dado
+            for anexo in anexados:
+                idf = identificador.identificar(anexo, textos.get(anexo))
+                if idf.get("tipo") != tipo:
+                    continue
+                m = padrao.search(textos.get(anexo) or "")
+                if not m:
+                    continue
+                extraido = m.group(0) if tipo == "CNPJ" else m.group(1)
+                destino = dados_processo
+                for chave in caminho[:-1]:
+                    destino = destino.setdefault(chave, {})
+                destino[caminho[-1]] = extraido
+                completados.append(
+                    f"{rotulo} não lido no formulário - COMPLETADO a partir do "
+                    f"anexo '{anexo}' (documento reconhecido pelo {idf.get('via')}).")
+                if tipo == "ART" and \
+                        dados_processo.get("status_triagem") == "bloqueado_sem_art":
+                    dados_processo["status_triagem"] = "liberado_triagem"
+                break
+        return completados
 
     @classmethod
     def _documento_estah_anexado(cls, documento_exigido: str, anexados: list[str]) -> Optional[str]:
@@ -91,23 +148,41 @@ class AgenteAdministrativo:
         return None
 
     # ------------------------------------------------------------------
-    def auditar(self, dados_processo: dict, documentos_anexados: Optional[list[str]] = None) -> dict[str, Any]:
+    def auditar(self, dados_processo: dict,
+                documentos_anexados: Optional[list[str]] = None,
+                textos_anexados: Optional[dict[str, str]] = None,
+                identificador: Optional[IdentificadorDocumentos] = None) -> dict[str, Any]:
         """Executa a auditoria administrativa completa.
 
         Args:
             dados_processo: JSON estruturado gerado pelo FormularioParser (Fase 1).
-            documentos_anexados: lista simulada de arquivos submetidos ao processo.
+            documentos_anexados: lista dos arquivos submetidos ao processo.
+            textos_anexados: {nome_arquivo: texto_extraído} para o
+                reconhecimento pelo CONTEÚDO quando o nome não basta.
+            identificador: IdentificadorDocumentos (default: instância própria
+                com o aprendizado persistente em config/).
 
         Returns:
             Dicionário com:
                 status_geral: "APROVADO" | "PENDENTE" | "BLOQUEADO"
                 bloqueios: hard constraints violadas (impossibilitam a análise)
                 documentos_ok / documentos_pendentes: cruzamento do checklist
-                avisos: documentos anexados que não corresponderam a exigências
+                origem_ok: como cada documento foi reconhecido
+                    (nome/conteúdo/aprendido) - transparência ao licenciador
+                avisos: anexos não correspondidos + campos críticos completados
+                    a partir de documentos anexados
         """
         documentos_anexados = list(documentos_anexados or [])
+        textos = textos_anexados or {}
+        identificador = identificador or IdentificadorDocumentos()
         bloqueios: list[str] = []
         avisos: list[str] = []
+
+        # 0) Campos críticos ausentes no FORMULÁRIO são recuperados dos
+        #    ANEXOS (nome -> aprendido -> conteúdo) - ex.: matrícula cujo
+        #    rótulo no formulário não foi lido, mas o documento está anexado
+        avisos.extend(self._completar_campos_criticos(
+            dados_processo, documentos_anexados, textos, identificador))
 
         # 1) Hard constraints --------------------------------------------
         for caminho, rotulo in self.CAMPOS_CRITICOS:
@@ -139,14 +214,30 @@ class AgenteAdministrativo:
         # Casamento greedy 1-para-1: cada anexo atende apenas UMA exigência
         # (evita que um mesmo arquivo, ex. 'pca_...pdf', cubra exigências distintas
         # que apenas mencionam a mesma sigla).
+        origem_ok: dict[str, dict[str, str]] = {}
         for exigido in exigidos:
             anexo_correspondente = None
+            via_reconhecimento = "nome"
             candidatos = [a for a in anexados_disponiveis
                           if a not in anexados_reconhecidos]
             anexo_correspondente = self._documento_estah_anexado(exigido, candidatos)
+            if not anexo_correspondente:
+                # FALLBACK: o nome não casou - reconhece pelo CONTEÚDO ou pelo
+                # APRENDIZADO (nomes alterados, ex.: '°Cópia da matrícula...')
+                tipo_exigido = IdentificadorDocumentos.tipo_da_exigencia(exigido)
+                if tipo_exigido:
+                    for anexo in candidatos:
+                        idf = identificador.identificar(anexo, textos.get(anexo))
+                        if idf.get("tipo") == tipo_exigido:
+                            anexo_correspondente = anexo
+                            via_reconhecimento = idf.get("via") or "conteudo"
+                            break
             if anexo_correspondente:
                 documentos_ok.append(exigido)
                 anexados_reconhecidos.add(anexo_correspondente)
+                if via_reconhecimento != "nome":
+                    origem_ok[exigido] = {"anexo": anexo_correspondente,
+                                          "via": via_reconhecimento}
             else:
                 documentos_pendentes.append({
                     "documento": exigido,
@@ -171,6 +262,7 @@ class AgenteAdministrativo:
             "bloqueios": bloqueios,
             "documentos_ok": documentos_ok,
             "documentos_pendentes": documentos_pendentes,
+            "origem_ok": origem_ok,
             "avisos": avisos,
             "resumo": {
                 "total_exigidos": len(exigidos),

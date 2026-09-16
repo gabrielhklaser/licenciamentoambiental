@@ -641,3 +641,97 @@ def test_painel_etapa2_2col_circulo_lp_e_taxa():
     captions = " | ".join(c.value for c in at.caption)
     assert "Primeira licença" in captions
     assert "tabela Primeira licença/Renovação" in captions
+
+
+# ==============================================================================
+# Reconhecimento robusto do MOTIVO (spans do Word) + documentos com nome alterado
+# ==============================================================================
+def test_motivo_lista_simples_wingdings():
+    """Formulário com a lista SIMPLES do item 3 (Licença Única, LP, LI, LO,
+    LIR, LOR) e símbolos Wingdings do Word: vazio='o' em spans que o
+    get_text separa do rótulo; marcado='þ' em Licença Prévia -> LP."""
+    dados = _parse("formulario_MOTIVO_lista_simples.htm")
+    pleito = dados["pleito"]
+    assert pleito["tipo_licenca"] == "LP", pleito
+    assert pleito["fases_componentes"] == ["LP"]
+    assert len(dados["documentos_exigidos"]["lista_deduplicada"]) == 5
+    fin = AgenteFinanceiro().calcular_do_parser(dados)
+    assert fin["total_urm"] == pytest.approx(72.10)
+
+
+def test_motivo_todos_com_circulo_menos_o_marcado():
+    """Todas as opções com '( o )' e UMA com '( X )': a marca é o símbolo
+    MINORITÁRIO (diferença entre as linhas) - e não a primeira linha."""
+    linhas_opcoes = ["Licença Única", "Licença Prévia", "Licença de Instalação",
+                     "Licença de Operação",
+                     "Licença de Instalação e Regularização",
+                     "Licença de Operação e Regularização"]
+    corpo = "".join(
+        f"<p>( {'X' if nome == 'Licença Prévia' else 'o'} ) {nome}</p>"
+        for nome in linhas_opcoes)
+    html = ("<!DOCTYPE html><html><body><h2>3. MOTIVO DO ENCAMINHAMENTO À SEMA</h2>"
+            f"{corpo}<h2>4. DOCUMENTAÇÃO</h2><ul><li>Formulário assinado</li></ul>"
+            "</body></html>")
+    dados = FormularioParser(conteudo_html=html).gerar_json()
+    assert dados["pleito"]["tipo_licenca"] == "LP", dados["pleito"]
+
+
+def test_documento_nome_alterado_reconhecido_e_aprendido(tmp_path):
+    """Pipeline do licenciador: nome alterado ('°Cópia da matrícula
+    atualizada') reconhece PELO NOME; nome esdrúxulo ('doc_escaneado_0912')
+    reconhece PELO CONTEÚDO e o sistema APRENDE o nome para os próximos
+    processos; a matrícula ausente no formulário é COMPLETADA pelo anexo."""
+    from licenciamento.identificador_documentos import IdentificadorDocumentos
+
+    idf = IdentificadorDocumentos(caminho=tmp_path / "aprendido.json")
+    html = (EXEMPLOS / "formulario_MOTIVO_lista_simples.htm").read_text(
+        encoding="utf-8")
+    dados = FormularioParser(conteudo_html=html).gerar_json()
+    assert dados["empreendimento"].get("matricula_imovel") is None
+
+    matricula_txt = ("CERTIDÃO DE INTEIRO TEOR\nMATRÍCULA Nº 41.203\n"
+                     "Registro de Imóveis de Campo Bom/RS - Serventia e Registro\n"
+                     "Campo Bom, 10 de setembro de 2026.")
+    art_txt = ("Anotação de Responsabilidade Técnica\nART Nº 55210201145\n"
+               "CREA-RS - Responsável Técnico: Eng. Ambiental Paulo Nunes")
+    anexos = ["°Cópia da matrícula atualizada.txt", "doc_escaneado_0912.txt"]
+    textos = {anexos[0]: matricula_txt, anexos[1]: art_txt}
+
+    resultado = AgenteAdministrativo().auditar(
+        dados, anexos, textos_anexados=textos, identificador=idf)
+    # campo crítico completado pelo documento (não derruba mais o processo)
+    assert dados["empreendimento"]["matricula_imovel"] == "41.203"
+    assert any("COMPLETADO" in a for a in resultado["avisos"])
+    assert not any("Matrícula" in b for b in resultado["bloqueios"])
+    # ART esdrúxula: reconhecida pelo CONTEÚDO e APRENDIDA
+    assert dados["responsavel_tecnico"]["registro_art"] == "55210201145"
+    aprendidos = {i["nome"]: i["tipo"] for i in idf.aprendidos}
+    assert aprendidos.get("doc escaneado 0912") == "ART"
+    via_art = resultado["origem_ok"].get("ART do responsável técnico", {})
+    assert via_art.get("via") in ("conteudo", "aprendido")
+
+    # aprendizado persiste: nova instância reconhece a variação do nome
+    idf2 = IdentificadorDocumentos(caminho=tmp_path / "aprendido.json")
+    de_novo = idf2.identificar("doc_escaneado_0912_versao_final.txt", None)
+    assert de_novo["tipo"] == "ART"
+    assert de_novo["via"] in ("aprendido", "nome")
+
+
+def test_painel_lista_simples_mostra_lp_e_taxa():
+    """Ponte a ponte do formulário com a lista simples do item 3 (símbolos
+    separados por spans): o painel exibe LP e a taxa 72,10 URM."""
+    from streamlit.testing.v1 import AppTest
+    at = AppTest.from_file(str(RAIZ / "app.py"), default_timeout=180)
+    at.run()
+    assert not at.exception
+    form_bytes = (EXEMPLOS / "formulario_MOTIVO_lista_simples.htm").read_bytes()
+    at.file_uploader[0].set_value(
+        [("formulario_lista_simples.htm", form_bytes, "text/html")])
+    at.run()
+    assert not at.exception
+    [b for b in at.button if "Analisar" in b.label][0].click()
+    at.run()
+    assert not at.exception, [e.value[:300] for e in at.exception]
+    metricas = {m.label: m.value for m in at.metric}
+    assert metricas.get("Licença pleiteada") == "LP", metricas
+    assert metricas.get("Taxa (URMs)") == "72,10", metricas
