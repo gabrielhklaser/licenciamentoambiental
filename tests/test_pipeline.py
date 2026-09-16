@@ -1022,3 +1022,59 @@ def test_listagem_ancorada_no_titulo_documentos_requeridos():
     assert not any("inundação" in x.lower() for x in lista)
     # fonte registrada como a listagem ancorada no título
     assert "Documentos Requeridos" in dados["documentos_exigidos"]["fonte_checklist"]
+
+
+# ==============================================================================
+# Etapa 1: 'Autorização Geral' e 'PRAD' como tipos selecionáveis
+# ==============================================================================
+def test_autorizacao_geral_na_etapa1_listagem_e_taxa():
+    """'Autorização Geral' selecionada na Etapa 1: NÃO herda as listagens
+    LP/LI/LO do formulário - usa o checklist oficial da espécie; taxa fixa
+    provisória de 52,20 URM (com aviso)."""
+    parser = FormularioParser(str(EXEMPLOS / REAL))
+    parser.parse()
+    d = parser.aplicar_pleito_manual("AUTORIZACAO", "Primeira licença")
+    lista = d["documentos_exigidos"]["lista_deduplicada"]
+    assert 3 <= len(lista) <= 12, lista
+    assert not any("Diretrizes Urbanísticas" in x for x in lista)  # era da LP
+    fin = AgenteFinanceiro().calcular_do_parser(d)
+    assert fin["total_urm"] == pytest.approx(52.20)
+
+
+def test_prad_na_etapa1_sem_listagem_e_taxa_sinalizada():
+    """'PRAD - Plano de Recuperação de Área Degradada' na Etapa 1: tipo
+    aceito (fases ['PRAD']); a listagem fica VAZIA até chegar o documento de
+    referência (Drive) e a taxa é sinalizada explicitamente como não
+    publicada no Manual (não é licença por fase)."""
+    parser = FormularioParser(str(EXEMPLOS / REAL))
+    parser.parse()
+    d = parser.aplicar_pleito_manual("PRAD", "Primeira licença")
+    assert d["pleito"]["tipo_licenca"] == "PRAD"
+    assert d["pleito"]["fases_componentes"] == ["PRAD"]
+    assert d["documentos_exigidos"]["lista_deduplicada"] == []
+    fin = AgenteFinanceiro().calcular_do_parser(d)
+    assert fin["total_urm"] is None
+    assert "não publicada" in (fin.get("erro") or "")
+
+
+def test_prad_e_autorizacao_no_painel_da_etapa2():
+    """Ponte a ponte: seleção PRAD na Etapa 1 -> painel mostra 'PRAD' com o
+    aviso da taxa; seleção AUTORIZACAO -> 'AUTORIZACAO' com 52,20 URM."""
+    from streamlit.testing.v1 import AppTest
+    for tipo, taxa_esperada in [("PRAD", "—"), ("AUTORIZACAO", "52,20")]:
+        at = AppTest.from_file(str(RAIZ / "app.py"), default_timeout=180)
+        at.run()
+        assert not at.exception
+        at.radio[0].set_value(tipo)
+        at.radio[1].set_value("Primeira licença")
+        at.run()
+        fb = (EXEMPLOS / REAL).read_bytes()
+        at.file_uploader[0].set_value([(f"{tipo}.html", fb, "text/html")])
+        at.run()
+        assert not at.exception
+        [b for b in at.button if "Analisar" in b.label][0].click()
+        at.run()
+        assert not at.exception, [e.value[:300] for e in at.exception]
+        metricas = {m.label: m.value for m in at.metric}
+        assert metricas.get("Licença pleiteada") == tipo, metricas
+        assert metricas.get("Taxa (URMs)") == taxa_esperada, metricas

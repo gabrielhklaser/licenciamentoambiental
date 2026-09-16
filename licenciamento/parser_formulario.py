@@ -210,6 +210,7 @@ class FormularioParser:
         "LOR": ["LP", "LI", "LO"],     # LOR exige o somatório LP + LI + LO
         "LICENCA_UNICA": ["LP", "LI", "LO"],  # licença que substitui as 3 fases
         "AUTORIZACAO": ["AUTORIZACAO"],
+        "PRAD": ["PRAD"],  # plano de recuperação (não é licença por fase)
         "DECLARACAO": ["DECLARACAO"],
         "ALVARA_FLORESTAL": ["ALVARA_FLORESTAL"],
     }
@@ -1366,6 +1367,15 @@ class FormularioParser:
             if not any(por_fase.values()):
                 por_fase = self._varrer_checklist_regex()
 
+            # Espécies SEM listagens por fase no formulário (Autorização,
+            # PRAD, Declaração, Alvará): as listagens LP/LI/LO do final do
+            # formulário não lhes servem - usa o checklist oficial da espécie
+            ESPECIES_SEM_FASES = ("AUTORIZACAO", "PRAD", "DECLARACAO",
+                                  "ALVARA_FLORESTAL")
+            if tipo_licenca in ESPECIES_SEM_FASES \
+                    and tipo_licenca not in por_fase:
+                por_fase = {}
+
             # Fallback 2 (oficial): usa os checklists calibrados a partir dos
             # formulários oficiais do órgão (config/checklists_oficiais.json).
             # Se o formulário é um dos tipos conhecidos do pacote SEMA, usa o
@@ -1386,10 +1396,11 @@ class FormularioParser:
                     # filtra pelas fases do pleito, quando conhecidas
                     fases_pleito = self.FASES_COMPONENTES.get(tipo_licenca, [])
                     if fases_pleito:
-                        filtrado = {fase: docs for fase, docs in por_fase.items()
+                        # filtrado VAZIO (espécie sem listagem oficial, ex.:
+                        # PRAD aguardando o documento de referência) ZERA as
+                        # listas - não pode herdar LP/LI/LO/Autorização
+                        por_fase = {fase: docs for fase, docs in por_fase.items()
                                     if fase in fases_pleito}
-                        if filtrado:
-                            por_fase = filtrado
                     self.fonte_checklist = (
                         f"checklist oficial ({self._fonte_checklist_oficial})")
 

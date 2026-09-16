@@ -429,6 +429,11 @@ class AgenteFinanceiro:
 
             fases = self.FASES_POR_PLEITO.get(tipo_n)
             if fases is None:
+                if tipo_n == "PRAD":
+                    raise ValueError(
+                        "Taxa do PRAD não publicada no Manual de Taxas SEMA "
+                        "Campo Bom (plano de recuperação de área degradada "
+                        "não é licença por fase) - conferir o valor com a SEMA.")
                 raise ValueError(f"Tipo de licença desconhecido: {tipo_licenca}")
 
             porte_n = self._normalizar(porte) or "MINIMO"

@@ -67,11 +67,16 @@
       "Requerimento padrão assinado pelo empreendedor",
       "Formulário de Licenciamento Ambiental preenchido e assinado com ART",
       "Documentação específica solicitada pelos técnicos da SEMA conforme o caso"
-    ]
+    ],
+    "PRAD": []
   },
   "checklists_por_formulario": {
     "sitios_de_lazer": {
-      "titulo_detecta": ["SITIO DE LAZER", "SITIOS DE LAZER", "AREA DE LAZER"],
+      "titulo_detecta": [
+        "SITIO DE LAZER",
+        "SITIOS DE LAZER",
+        "AREA DE LAZER"
+      ],
       "fases": "usar documentos_por_fase (LP/LI/LO do formulário oficial 2025-2)",
       "renovacao": [
         "Procuração do empreendedor para técnico ou consultoria do Licenciamento Ambiental",
@@ -85,7 +90,9 @@
       ]
     },
     "exploracao_eventual_arvores_nativas": {
-      "titulo_detecta": ["EXPLORACAO EVENTUAL DE ARVORES NATIVAS"],
+      "titulo_detecta": [
+        "EXPLORACAO EVENTUAL DE ARVORES NATIVAS"
+      ],
       "documentos": [
         "Matrícula atualizada do Registro de Imóveis ou comprovante de propriedade/posse/cessão de uso (validade 30 dias - Provimento 037/2018-CGJ)",
         "Declaração de enquadramento como pequeno produtor rural (Lei Federal nº 11.326/2006)",
@@ -96,7 +103,9 @@
       ]
     },
     "arvores_imunes_ao_corte": {
-      "titulo_detecta": ["IMUNES AO CORTE"],
+      "titulo_detecta": [
+        "IMUNES AO CORTE"
+      ],
       "documentos": [
         "Matrícula atualizada do Registro de Imóveis ou comprovante de propriedade/posse/cessão de uso (validade 30 dias)",
         "Projeto Técnico para Supressão, Podas ou Transplante de Árvores Nativas Imunes ao Corte: justificativa, identificação botânica, dados dendrométricos (copa, fuste, altura), sanidade e raridade/abundância, laudo de risco à integridade física/patrimonial ou Declaração de Utilidade Pública/Interesse Social, avaliação de alternativas, cronograma, fotografias, metodologia, marcação numérica em campo, ART",
@@ -108,7 +117,10 @@
       ]
     },
     "baixo_impacto_app": {
-      "titulo_detecta": ["BAIXO IMPACTO AMBIENTAL EM AREA DE PRESERVACAO PERMANENTE", "BAIXO IMPACTO EM APP"],
+      "titulo_detecta": [
+        "BAIXO IMPACTO AMBIENTAL EM AREA DE PRESERVACAO PERMANENTE",
+        "BAIXO IMPACTO EM APP"
+      ],
       "documentos": [
         "Matrícula atualizada do Registro de Imóveis ou comprovante de propriedade/posse/cessão de uso (validade 30 dias)",
         "Projeto Técnico: identificação da propriedade e proprietário, objetivo/justificativa/descrição da intervenção com cronograma, marcação numérica em campo, ART",
@@ -120,7 +132,9 @@
       ]
     },
     "manejo_estagio_medio_2ha": {
-      "titulo_detecta": ["ESTAGIO MEDIO DE REGENERACAO NATURAL"],
+      "titulo_detecta": [
+        "ESTAGIO MEDIO DE REGENERACAO NATURAL"
+      ],
       "documentos": [
         "Matrícula atualizada do Registro de Imóveis ou comprovante de propriedade/posse/cessão de uso (validade 30 dias)",
         "Declaração de enquadramento como pequeno produtor rural (Lei Federal nº 11.326/2006)",
@@ -131,7 +145,9 @@
       ]
     },
     "abertura_acude": {
-      "titulo_detecta": ["ABERTURA DE ACUDE"],
+      "titulo_detecta": [
+        "ABERTURA DE ACUDE"
+      ],
       "documentos": "usar documentos_por_fase (LP/LI/LO); formulário exige área total e profundidade do açude, capacidade de armazenamento (m³), altura do talude e ART por etapa (projeto, execução da obra, LCV/manejo/transplante, laudo geológico com levantamento plani-altimétrico)"
     }
   },
@@ -140,6 +156,7 @@
     "Assinatura digital com certificado ou firma reconhecida em cartório (Decreto Municipal nº 7.119/2021, § 2º).",
     "Matrícula do imóvel com validade de 30 dias (Provimento nº 037/2018-CGJ).",
     "Todo processo exige responsável técnico com ART; uma única ART pode cobrir o processo se descrever todas as atividades.",
-    "Análise conforme Resolução CONAMA nº 237/1997; a análise não exclui complementações."
+    "Análise conforme Resolução CONAMA nº 237/1997; a análise não exclui complementações.",
+    "PRAD (Plano de Recuperação de Área Degradada): listagem pendente - aguardando o documento de referência com todos os tipos de formulários e suas documentações (a ser publicado pelo licenciador)."
   ]
 }

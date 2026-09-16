@@ -261,12 +261,16 @@ def pagina_upload() -> None:
                     "LI": "Licença de Instalação (LI)",
                     "LO": "Licença de Operação (LO)",
                     "LIR": "Licença de Instalação e Regularização (LIR)",
-                    "LOR": "Licença de Operação e Regularização (LOR)"}
+                    "LOR": "Licença de Operação e Regularização (LOR)",
+                    "AUTORIZACAO": "Autorização Geral",
+                    "PRAD": "PRAD - Plano de Recuperação de Área Degradada"}
 
     def _limitar_tipos_na_renovacao() -> None:
-        """Renovação aplica-se apenas a LP, LI e LO (LIR/LOR regularizam)."""
+        """Renovação aplica-se apenas a LP, LI e LO (regularizações,
+        autorizações e planos não se renovam)."""
         if (st.session_state.get("natureza_pleito") == "Renovação"
-                and st.session_state.get("tipo_selecionado") in ("LIR", "LOR")):
+                and st.session_state.get("tipo_selecionado")
+                not in ("LP", "LI", "LO")):
             st.session_state.tipo_selecionado = "LP"
 
     col_tipo, col_natureza = st.columns([1.5, 1.0])
@@ -279,7 +283,7 @@ def pagina_upload() -> None:
         tipo = st.radio(
             "Licença pleiteada",
             (["LP", "LI", "LO"] if natureza == "Renovação"
-             else ["LP", "LI", "LO", "LIR", "LOR"]),
+             else ["LP", "LI", "LO", "LIR", "LOR", "AUTORIZACAO", "PRAD"]),
             key="tipo_selecionado",
             format_func=lambda k: ROTULOS_TIPO[k])
 
