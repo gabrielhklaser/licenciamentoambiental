@@ -666,8 +666,17 @@ class FormularioParser:
                     resultado["codram"] = achou.group(1).strip(" .-")
                 else:
                     achou2 = re.match(r"\s*(\d{3,4}[.,]\d{2})\s*[-–—]", codram)
-                    resultado["codram"] = (achou2.group(1) if achou2
-                                           else codram.strip(" .-"))
+                    if achou2:
+                        resultado["codram"] = achou2.group(1)
+                    else:
+                        # o campo pode vir com o "run-on" da tabela (codigo +
+                        # todo o texto seguinte); NUNCA despejar o campo
+                        # inteiro: fica só o primeiro token com cara de codigo
+                        token = re.match(r"\s*(\d{1,4}(?:[.,\-]\d{1,3})+|\d{3,4})",
+                                         codram)
+                        resultado["codram"] = (
+                            token.group(0).strip(" .-") if token else
+                            codram.splitlines()[0][:24].strip(" .-"))
 
             # Porte (Mínimo, Pequeno, Médio, Grande, Excepcional)
             # Formulários oficiais usam campo COMBINADO 'Porte/Potencial

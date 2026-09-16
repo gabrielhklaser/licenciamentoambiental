@@ -379,9 +379,15 @@ def pagina_analise() -> None:
                                 ramo_ativ.splitlines()[0]).strip()
         c3.metric("Tipo de empreendimento", descricao_tipo)
     else:
-        c3.metric("Tipo de empreendimento", codram or "—")
+        m_cod = re.match(r"\s*(\d{1,4}(?:[.,\-]\d{1,3})+|\d{3,4})", codram)
+        c3.metric("Tipo de empreendimento",
+                  (m_cod.group(1) if m_cod else codram) or "—")
     if codram:
-        c3.caption("CODRAM " + codram)
+        # legenda curta: somente o código (campo pode conter run-on da tabela)
+        m_cod = re.match(r"\s*(\d{1,4}(?:[.,\-]\d{1,3})+|\d{3,4})", codram)
+        codigo_curto = (m_cod.group(1) if m_cod
+                        else codram.splitlines()[0][:20])
+        c3.caption("CODRAM " + codigo_curto)
     # Diagnóstico do item 3: mostrado quando a marcação não foi lida OU
     # divergiu da seleção do licenciador (transparência, sem travar o fluxo)
     if not pleito.get("tipo_licenca") or pleito.get("divergencia_selecao"):

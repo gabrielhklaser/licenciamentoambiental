@@ -1153,3 +1153,25 @@ def test_banco_nao_casa_condominios_nem_troca_listagem():
     lista = d["documentos_exigidos"]["lista_deduplicada"]
     assert len(lista) == 14
     assert "Documentos Requeridos" in d["documentos_exigidos"]["fonte_checklist"]
+
+
+def test_codram_nao_arrasta_runon_da_tabela():
+    """Bug reportado: campo CODRAM vinha com o código + TODO o texto seguinte
+    do formulário (run-on da tabela), quebrando a coluna 'Tipo de
+    empreendimento' da Etapa 2. Fica só o código."""
+    html = ("<html><body><h1>LICENCIAMENTO AMBIENTAL</h1><table>"
+            "<tr><td>Nome/Razão Social:</td><td>Empreendimento Teste</td></tr>"
+            "<tr><td>Ramo de Atividade:</td><td>Parcelamento</td></tr>"
+            "<tr><td>CODRAM:</td><td>3414,40 Parcelamento do solo para fins "
+            "residenciais e mistos 2. IDENTIFICAÇÃO DO PLEITO "
+            "3. IDENTIFICAÇÃO DO EMPREENDIMENTO Área Total (ha): 5,0 "
+            "Matrícula do Imóvel: 12345</td></tr></table></body></html>")
+    parser = FormularioParser(conteudo_html=html)
+    parser.parse()
+    assert parser.dados["empreendimento"]["codram"] == "3414,40"
+
+    # formato oficial pontilhado com dígito verificador também se mantém
+    html2 = html.replace("3414,40 Parcelamento", "05.412.1-3 Loteamento")
+    parser2 = FormularioParser(conteudo_html=html2)
+    parser2.parse()
+    assert parser2.dados["empreendimento"]["codram"] == "05.412.1-3"
