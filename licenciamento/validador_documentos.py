@@ -399,28 +399,70 @@ class ValidadorDocumentos:
     def _similaridade(a: str, b: str) -> float:
         return SequenceMatcher(None, normalizar(a), normalizar(b)).ratio()
 
+    # conectivos ignorados na extração do NÚCLEO discriminante da exigência
+    STOPWORDS_NUCLEO = {"para", "desta", "deste", "dessas", "desses", "segundo",
+                        "conforme", "sobre", "pelo", "pela", "quando", "caso",
+                        "ser", "deve", "apresentar", "copia"}
+
+    def _nucleo_discriminante(self, exigencia: str) -> list[str]:
+        """Primeiras palavras SIGNIFICATIVAS do nome do documento exigido
+        (ex.: 'Diretrizes Urbanísticas Departamento Planejamento') - o que
+        REALMENTE identifica o documento, e não frases genéricas do meio
+        ('elaborado de acordo com o TR... com ART de responsável técnico')."""
+        ex_n = normalizar(re.sub(r"^\d+\s*[.)]\s*", "", exigencia))
+        palavras = [p.strip("(),;:") for p in ex_n.split()]
+        nucleo = [p for p in palavras
+                  if len(p) >= 5 and p not in self.STOPWORDS_NUCLEO]
+        return nucleo[:4]
+
     def casar_exigencia(self, exigencia: str, arquivos: list[dict],
                         limiar: float = 0.42) -> Optional[str]:
         """Encontra o ARQUIVO mais aderente a uma exigência do checklist.
 
-        Combina: palavras-chave da exigência presentes no nome/conteúdo do
-        arquivo + similaridade de strings. Retorna o nome do arquivo ou None.
+        Dupla blindagem (corrige conformidades cruzadas):
+          1. o FORMULÁRIO .htm/.html só atende à exigência do próprio
+             formulário - nunca serve de 'documento apresentado' para as demais;
+          2. o NÚCLEO discriminante da exigência (2 primeiras palavras do
+             nome do documento) precisa estar no NOME ou no TEXTO INICIAL do
+             arquivo - palavras genéricas do meio da frase ('elaborado',
+             'responsável', 'habilitado') não cruzam documentos.
+        Entre os aderentes, vence o melhor score (similaridade + keywords).
         """
         ex_n = normalizar(exigencia)
-        palavras = [p for p in ex_n.split() if len(p) >= 5]
-        melhor: tuple[float, Optional[str]] = (0.0, None)
+        exigencia_de_formulario = "formulario" in ex_n
+        nucleo = self._nucleo_discriminante(exigencia)
+        # nomes de formulário variam demais para núcleo rígido (o guard
+        # específico de .htm/.html já cuida dessa família de exigência)
+        exige_nucleo = len(nucleo) >= 2 and not exigencia_de_formulario
+        candidatos: list[tuple[float, str]] = []
         for arq in arquivos:
-            nome_n = normalizar(arq.get("nome", ""))
-            texto_n = normalizar((arq.get("texto") or "")[:4000])
-            pontos = self._similaridade(exigencia, arq.get("nome", ""))
+            nome = arq.get("nome", "")
+            sufixo = Path(nome).suffix.lower()
+            if sufixo in (".htm", ".html") and not exigencia_de_formulario:
+                continue  # formulário não é 'documento apresentado'
+            nome_n = normalizar(nome)
+            texto_n = normalizar((arq.get("texto") or "")[:1200])
+            if exige_nucleo:
+                # 1ª palavra do núcleo OBRIGATÓRIA + ao menos mais uma das
+                # seguintes (tolera nomes de arquivo resumidos, ex.:
+                # 'matricula_imovel.jpg' para 'Cópia da matrícula atualizada')
+                tem_primeira = nucleo[0] in nome_n or nucleo[0] in texto_n
+                tem_apoio = any(p in nome_n or p in texto_n
+                                for p in nucleo[1:4])
+                if not (tem_primeira and tem_apoio):
+                    continue  # núcleo ausente: não é este documento
+            palavras = [p for p in ex_n.split() if len(p) >= 5]
+            pontos = self._similaridade(exigencia, nome)
             for palavra in palavras:
                 if palavra in nome_n:
                     pontos += 0.18
                 elif palavra in texto_n:
                     pontos += 0.08
-            if pontos > melhor[0]:
-                melhor = (pontos, arq.get("nome"))
-        return melhor[1] if (melhor[1] and melhor[0] >= limiar) else None
+            candidatos.append((pontos, nome))
+        if not candidatos:
+            return None
+        pontos, nome = max(candidatos, key=lambda par: par[0])
+        return nome if pontos >= limiar else None
 
     def montar_quadro(self, exigencias: list[str], arquivos: list[dict],
                       analises: dict[str, ResultadoValidacao],

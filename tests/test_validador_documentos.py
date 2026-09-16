@@ -258,3 +258,90 @@ def test_quadro_casa_exigencia_com_imagem_bem_nomeada(validador):
     assert linhas[0]["situacao"] == "PENDENTE"  # conferência manual pendente
     assert any("imagem" in p_.lower() for p_ in linhas[0]["pendencias"])
     assert extras == []
+
+
+# ==============================================================================
+# Casamento exigência x arquivo: NÚCLEO discriminante (sem cruzar documentos)
+# ==============================================================================
+def test_casamento_nao_cruza_documentos_casos_do_licenciador():
+    """Casos reportados pelo licenciador: 'Diretrizes Urbanísticas' NÃO é dado
+    como conforme pelo LAUDO DE COBERTURA VEGETAL; 'Inventário de fauna' não
+    é satisfeito pelo EIV; 'Planta de localização' não é satisfeita pelo EIV."""
+    validador = ValidadorDocumentos()
+    eiv = {"nome": "eiv_estudo_impacto_vizinhanca.pdf",
+           "texto": "Estudo de Impacto de Vizinhança (EIV), elaborado de acordo "
+                    "com o TR desta secretaria, com ART de responsável técnico "
+                    "habilitado. Contém planta de localização da área.",
+           "tipo": "EIV"}
+    laudo_lc = {"nome": "laudo_cobertura_vegetal.pdf",
+                "texto": "Laudo de Cobertura Vegetal, elaborado de acordo com o "
+                         "TR desta secretaria, com ART de responsável técnico "
+                         "habilitado e indicação das APP.",
+                "tipo": "LCV"}
+    fauna = {"nome": "inventario_fauna.pdf",
+             "texto": "Inventário de fauna, elaborado de acordo com o TR desta "
+                      "secretaria, com ART de responsável técnico habilitado.",
+             "tipo": None}
+    arquivos = [eiv, laudo_lc, fauna]
+
+    # Diretrizes Urbanísticas: NENHUM arquivo tem o núcleo -> NÃO_APRESENTADO
+    assert validador.casar_exigencia(
+        "1. Diretrizes Urbanísticas do Departamento de Planejamento desta "
+        "Prefeitura;", arquivos) is None
+    # EIV casa SOMENTE com o EIV (não com fauna, não com laudo de cobertura)
+    assert validador.casar_exigencia(
+        "8. Estudo de Impacto de Vizinhança (EIV), elaborado de acordo com o "
+        "TR desta secretaria, com ART de responsável técnico habilitado;",
+        arquivos) == "eiv_estudo_impacto_vizinhanca.pdf"
+    # Inventário de fauna casa SOMENTE com o inventário (não com o EIV)
+    assert validador.casar_exigencia(
+        "9. Inventário de fauna, elaborado de acordo com o TR desta secretaria, "
+        "com ART de responsável técnico habilitado;",
+        arquivos) == "inventario_fauna.pdf"
+    # Planta de localização (texto do EIV cita!) NÃO pode casar com o EIV
+    # se existir o arquivo próprio
+    planta = {"nome": "planta_localizacao.pdf",
+              "texto": "Planta de localização da área com o entorno de 100 metros.",
+              "tipo": None}
+    arquivos_planta = arquivos + [planta]
+    assert validador.casar_exigencia(
+        "12. Planta de localização da área apresentando inclusive seu entorno "
+        "(100 metros): vias de acesso, localização de recursos hídricos e APPs;",
+        arquivos_planta) == "planta_localizacao.pdf"
+    # sem o arquivo próprio: NÃO cai no EIV (núcleo 'planta localizacao'
+    # presente só como menção) - fica NÃO apresentado
+    assert validador.casar_exigencia(
+        "12. Planta de localização da área apresentando inclusive seu entorno "
+        "(100 metros): vias de acesso, localização de recursos hídricos e APPs;",
+        arquivos) is None
+
+
+def test_formulario_html_so_atende_exigencia_de_formulario():
+    """O formulário .htm/.html NÃO é 'documento apresentado' para nenhuma
+    outra condicionante - apenas para a exigência do próprio formulário."""
+    validador = ValidadorDocumentos()
+    formulario = {"nome": "formulario_MARIA_BELLE.html",
+                  "texto": "Contrato social CNPJ matrícula atualizada "
+                           "laudo de cobertura vegetal inventário de fauna "
+                           "planta de localização diretrizes urbanísticas",
+                  "tipo": "FORMULARIO"}
+    assert validador.casar_exigencia(
+        "4. Cópia da matrícula atualizada (últimos 90 dias);",
+        [formulario]) is None
+    assert validador.casar_exigencia(
+        "2. Contrato social;", [formulario]) is None
+    # exigência do próprio formulário: atende normalmente
+    assert validador.casar_exigencia(
+        "3. Formulário de Informações para Licenciamento Ambiental;",
+        [formulario]) == "formulario_MARIA_BELLE.html"
+
+
+def test_casamento_tolerante_a_nome_resumido():
+    """Nomes de arquivo RESUMIDOS continuam casando: 'matricula_imovel.jpg'
+    atende 'Cópia da matrícula atualizada do imóvel' (núcleo: 1ª palavra +
+    apoio)."""
+    validador = ValidadorDocumentos()
+    imagem = {"nome": "matricula_imovel.jpg", "texto": "", "tipo": None}
+    assert validador.casar_exigencia(
+        "Cópia da matrícula atualizada do imóvel", [imagem]) == \
+        "matricula_imovel.jpg"

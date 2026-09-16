@@ -178,6 +178,8 @@ class AgenteAdministrativo:
             4) casamento por palavras-chave (>= LIMIAR_PALAVRAS_CHAVE).
         """
         exigido_n = cls._normalizar(documento_exigido)
+        # o FORMULÁRIO .htm/.html só atende à exigência do próprio formulário
+        exigencia_de_formulario = "formulario" in exigido_n
         # palavras-chave que definem o documento (ignora artigos/preposições curtas)
         palavras = {p for p in exigido_n.split() if len(p) > 3}
         # siglas no texto original (ex.: 'Plano de Gerenciamento ... (PGRS)')
@@ -187,6 +189,9 @@ class AgenteAdministrativo:
             anexo_n = cls._normalizar(anexo)
             if not anexo_n:
                 continue
+            if (not exigencia_de_formulario
+                    and anexo.lower().endswith((".htm", ".html"))):
+                continue  # o formulário nao e documento apresentado
             if exigido_n in anexo_n or anexo_n in exigido_n:
                 return anexo
             ratio = SequenceMatcher(None, exigido_n, anexo_n).ratio()

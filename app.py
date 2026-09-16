@@ -350,7 +350,13 @@ def pagina_analise() -> None:
     nome_exibicao = (empreendedor.get("nome_fantasia")
                      or empreendedor.get("nome_razao_social")
                      or emp.get("nome_empreendimento") or "—")
-    c1, c2, c3, c4 = st.columns([1.6, 1.0, 1.2, 0.9])
+    # rótulos e valores das métricas com fonte menor (cabeçalho compacto)
+    st.markdown(
+        "<style>"
+        '[data-testid="stMetricLabel"] p {font-size: 0.80rem !important;}'
+        '[data-testid="stMetricValue"] {font-size: 1.02rem !important;}'
+        "</style>", unsafe_allow_html=True)
+    c1, c2, c3, c4 = st.columns([1.6, 1.0, 1.6, 0.9])
     c1.metric("Empreendimento", str(nome_exibicao)[:36])
     # Licença pleiteada = tipo MARCADO no formulário (seção MOTIVO DO
     # ENCAMINHAMENTO À SEMA), com a origem da leitura indicada
@@ -368,8 +374,10 @@ def pagina_analise() -> None:
     ramo_ativ = (emp.get("ramo_atividade") or "").strip()
     codram = (emp.get("codram") or "").strip()
     if ramo_ativ:
-        descricao_tipo = re.sub(r"^[\d.,]+\s*[-–—]\s*", "", ramo_ativ)
-        c3.metric("Tipo de empreendimento", descricao_tipo[:26])
+        # SOMENTE a primeira linha do campo, mas com o texto COMPLETO
+        descricao_tipo = re.sub(r"^[\d.,]+\s*[-–—]\s*", "",
+                                ramo_ativ.splitlines()[0]).strip()
+        c3.metric("Tipo de empreendimento", descricao_tipo)
     else:
         c3.metric("Tipo de empreendimento", codram or "—")
     if codram:
@@ -417,7 +425,8 @@ def pagina_analise() -> None:
             "Arquivo apresentado": q.get("arquivo") or "—",
             "Pendências": "  |  ".join(q.get("pendencias") or []) or "—",
         } for q in quadro]
-        st.dataframe(pd.DataFrame(linhas_df), width="stretch", hide_index=True)
+        st.dataframe(pd.DataFrame(linhas_df), width="stretch",
+                     hide_index=True, height=660)
     else:
         st.info("Sem checklist de exigências para esta licença "
                 "(formulário não identificado).")
