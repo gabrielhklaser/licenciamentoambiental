@@ -334,6 +334,18 @@ class FormularioParser:
         self.checklist_oficial: dict[str, list[str]] = dict(checklist_oficial or {})
         self.checklists_por_formulario: dict[str, dict] = {}
         self._fonte_checklist_oficial = "checklist oficial SEMA"
+        # BANCO DE CHECKLISTS POR TIPO DE FORMULÁRIO (documento de referência
+        # SEMA no Drive): o CABEÇALHO do HTML define o tipo e a listagem vem
+        # daqui, para a licença selecionada na Etapa 1
+        self.tipos_formulario_banco: dict[str, Any] = {}
+        try:
+            caminho_tipos = (Path(__file__).resolve().parents[1] / "config" /
+                             "checklists_por_formulario_tipos.json")
+            if caminho_tipos.exists():
+                self.tipos_formulario_banco = json.loads(
+                    caminho_tipos.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            self._registrar_falha("__init__", f"banco de tipos: {exc}")
         self.fonte_checklist = "formulário HTML"
         # cópia por instância: a mescla de rótulos extras não contamina a classe
         self.ROTULOS = {campo: list(lista) for campo, lista in self.ROTULOS.items()}
@@ -1321,6 +1333,82 @@ class FormularioParser:
                 return fase
         return None
 
+    def _detectar_tipo_formulario(self) -> Optional[dict[str, Any]]:
+        """Lê o CABEÇALHO do formulário HTML (title/h1/h2/h3 + início do texto)
+        e identifica o TIPO DE FORMULÁRIO no banco de checklists (documento de
+        referência SEMA). Retorna {'chave', 'nome'} ou None."""
+        try:
+            regiao = self._texto_norm[:600]
+            if self.soup:
+                titulos = " ".join(
+                    tag.get_text(" ") for tag in
+                    list(self.soup.find_all(["title", "h1", "h2", "h3"]))[:6])
+                regiao = normalizar(titulos) + " " + regiao
+            if not regiao.strip():
+                return None
+            for chave, entrada in (self.tipos_formulario_banco
+                                   .get("tipos", {}).items()):
+                for grupo in entrada.get("palavras", []):
+                    if all(palavra in regiao for palavra in grupo):
+                        return {"chave": chave,
+                                "nome": entrada.get("nome", chave)}
+        except Exception as exc:  # noqa: BLE001
+            self._registrar_falha("_detectar_tipo_formulario", str(exc))
+        return None
+
+    def _listagem_do_banco(self, tipo: str,
+                           natureza: Optional[str]) -> tuple[Optional[dict],
+                                                             Optional[dict]]:
+        """Listagem exigida no BANCO por (tipo de formulário no cabeçalho,
+        licença selecionada). Regras: Renovação usa 'RENOVACAO'; equivalências
+        declaradas por tipo (ex.: Criação de Animais LIR/LOR/LI -> LP);
+        LIR/LOR sem listagem própria somam LP+LI/LP+LI+LO (deduplicado);
+        tipos de PROCESSO ÚNICO usam 'UNICO' para qualquer licença.
+        Retorna (tipo_formulario, documentos_exigidos) - docs None se não houver."""
+        try:
+            tipo_form = self._detectar_tipo_formulario()
+            if not tipo_form:
+                return None, None
+            entrada = (self.tipos_formulario_banco.get("tipos", {})
+                       .get(tipo_form["chave"], {}))
+            por_lic = entrada.get("por_licenca", {})
+            itens, rotulo = None, tipo
+            if natureza == "Renovação" and "RENOVACAO" in por_lic:
+                itens, rotulo = list(por_lic["RENOVACAO"]), "RENOVACAO"
+            elif tipo in por_lic:
+                itens = list(por_lic[tipo])
+            else:
+                equiv = entrada.get("equivalencias", {}).get(tipo)
+                if equiv and equiv in por_lic:
+                    itens = list(por_lic[equiv])
+                    rotulo = f"{tipo} (lista da {equiv})"
+                elif tipo == "LIR" and "LP" in por_lic and "LI" in por_lic:
+                    itens = list(por_lic["LP"]) + list(por_lic["LI"])
+                    rotulo = "LIR (LP+LI)"
+                elif tipo == "LOR" and all(f in por_lic for f in ("LP", "LI", "LO")):
+                    itens = (list(por_lic["LP"]) + list(por_lic["LI"])
+                             + list(por_lic["LO"]))
+                    rotulo = "LOR (LP+LI+LO)"
+                elif "UNICO" in por_lic:
+                    itens, rotulo = list(por_lic["UNICO"]), "UNICO"
+            if itens is None:
+                return tipo_form, None
+            dedup, remov = self._deduplicar_documentos(itens)
+            docs = {
+                "por_fase": {rotulo: dedup},
+                "lista_deduplicada": dedup,
+                "fonte_checklist": (
+                    f'banco de checklists por tipo de formulário - '
+                    f'"{tipo_form["nome"]}" ({rotulo})'),
+                "estatisticas": {"total_bruto": len(itens),
+                                 "total_deduplicado": len(dedup),
+                                 "removidos": remov},
+            }
+            return tipo_form, docs
+        except Exception as exc:  # noqa: BLE001
+            self._registrar_falha("_listagem_do_banco", str(exc))
+            return None, None
+
     def _detectar_formulario(self) -> Optional[str]:
         """Identifica o formulário oficial pelo título/texto (pacote SEMA).
 
@@ -1792,6 +1880,7 @@ class FormularioParser:
             "empreendimento": empreendimento,
             "responsavel_tecnico": responsavel,
             "responsaveis_etapas": self.extrair_responsaveis_etapas(),
+            "tipo_formulario": self._detectar_tipo_formulario(),
             "pleito": pleito,
             "documentos_exigidos": documentos,
             "avisos_parser": self.log_erros,
@@ -1856,6 +1945,15 @@ class FormularioParser:
                 self._registrar_falha("aplicar_pleito_manual", msg)
             else:
                 pleito.pop("divergencia_selecao", None)
+            # PRIORIDADE MÁXIMA: listagem do BANCO por (tipo de formulário no
+            # cabeçalho do HTML, licença selecionada na Etapa 1)
+            tipo_form, docs_banco = self._listagem_do_banco(
+                tipo, natureza or "Primeira licença")
+            if docs_banco:
+                self.dados["tipo_formulario"] = tipo_form
+                self.dados["documentos_exigidos"] = docs_banco
+                return self.dados
+
             docs = self.extrair_documentos_exigidos(tipo_licenca=tipo)
             # RENOVAÇÃO tem listagem PRÓPRIA no formulário ('Renovação de
             # Licenças'), independente da fase (LP/LI/LO)

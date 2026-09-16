@@ -1,0 +1,711 @@
+{
+ "fonte": "Listagem de documentação pedida dentro do processo de licenciamento - documento de referência SEMA Campo Bom (enviado pelo licenciador em 16/09/2026)",
+ "fonte_url": "https://drive.google.com/file/d/1NqgUs4ewbOqNhOltuEyd-UcqwzlbODoX/view",
+ "fonte_tipo": "documento_referencia_licenciador",
+ "revisado": true,
+ "revisado_em": "2026-09-16",
+ "como_usar": "O CABEÇALHO do formulário HTML enviado define o TIPO DE FORMULÁRIO; a listagem exigida é a deste tipo para a licença selecionada na Etapa 1 (LP/LI/LO/LIR/LOR/Renovação; tipos de processo único usam UNICO).",
+ "tipos": {
+  "comercios_servicos": {
+   "nome": "COMÉRCIOS E SERVIÇOS",
+   "palavras": [
+    [
+     "COMERCIOS E SERVICOS"
+    ],
+    [
+     "COMERCIO E SERVICOS"
+    ]
+   ],
+   "por_licenca": {
+    "LP": [
+     "1. Formulário de Licenciamento Ambiental preenchido e assinado",
+     "2. Cópia do CNPJ",
+     "3. Contrato social da empresa",
+     "4. Cópia do documento de identificação dos responsáveis legais",
+     "5. ART do responsável técnico pelo licenciamento ambiental",
+     "6. Relatório técnico-fotográfico da área do empreendimento",
+     "7. Croqui do terreno com quadro de áreas (total, ao ar livre, construída, útil)",
+     "8. Certidão de Zoneamento para a atividade",
+     "9. Relatório técnico-fotográfico do processo produtivo",
+     "10. Justificativa da ampliação (em caso de ampliação)",
+     "11. Matrícula atualizada + contrato de locação autorizando edificações (se aluguel)",
+     "12. Laudo de Cobertura Vegetal (LCV), com ART",
+     "13. Laudo de Fauna (LF), com ART",
+     "14. Laudo geológico, com ART",
+     "15. Projeto de captação e retenção de águas pluviais (área construída >= 500 m² - COMDEMA 11/2025)",
+     "16. Outros documentos conforme características da atividade/localização/área"
+    ],
+    "LI": [
+     "1. Formulário de Licenciamento Ambiental preenchido e assinado, com ART",
+     "2. Projeto de construção aprovado pelo Depto. de Planejamento, com ART",
+     "3. Memorial Descritivo do Projeto Arquitetônico com cronograma, com ART",
+     "4. Projeto de Arborização do passeio público (Lei 4.966/2020)",
+     "5. PGRCC com ART de elaboração e execução",
+     "6. Projeto de captação e retenção de águas pluviais (área construída >= 500 m²)",
+     "7. Outros documentos conforme características da atividade"
+    ],
+    "LO": [
+     "1. Formulário de Licenciamento Ambiental preenchido e assinado, com ART",
+     "2. Cópia do Contrato Social",
+     "3. Cópia do CNPJ",
+     "4. Cópia do Alvará Municipal",
+     "5. Cópia da matrícula",
+     "6. Cópia do contrato de locação (se for o caso)",
+     "7. Comprovante do CTF (IBAMA)",
+     "8. Alvará dos Bombeiros vigente (alto risco) ou protocolo do PPCI com ART/RRT",
+     "9. Relatório técnico-fotográfico do processo produtivo",
+     "10. PGRS da empresa, com ART",
+     "11. Sistema de tratamento de efluentes: memorial fotográfico + projeto com ART (ou LO da terceirizada)",
+     "12. CDF - Certificado de Destinação Final de resíduos (em caso de LOR)",
+     "13. Utilização de lenha: tipo, periodicidade, fontes e Certidão do Cadastro Florestal",
+     "14. Outros documentos conforme características da atividade",
+     "15. Alvará da Vigilância Sanitária vigente (poderá ser exigido)",
+     "16. Planta baixa da área da empresa, com ART (poderá ser exigido)"
+    ]
+   }
+  },
+  "construcao_civil": {
+   "nome": "CONSTRUÇÃO CIVIL",
+   "palavras": [
+    [
+     "CONSTRUCAO CIVIL"
+    ],
+    [
+     "OBRA CIVIL"
+    ]
+   ],
+   "por_licenca": {
+    "LP": [
+     "1. Formulário para Licenciamento Ambiental de Obra Civil preenchido e assinado",
+     "2. Cópia do CNPJ",
+     "3. Contrato social da empresa",
+     "4. Cópia do documento de identificação dos responsáveis legais",
+     "5. Cópia da matrícula atualizada",
+     "6. Cópia do contrato de locação (se for o caso)",
+     "7. Projeto arquitetônico com assinatura e ART ou RRT",
+     "8. Plano de gerenciamento de resíduos da obra, com ART",
+     "9. Certidão de zoneamento afirmando viabilidade",
+     "10. Laudo de Cobertura Vegetal (LCV), com ART",
+     "11. Laudo de Fauna, com ART",
+     "12. Laudo Geológico, com ART",
+     "13. Projeto de terraplanagem (declividade > 20% ou taludes > 4 m), com ART",
+     "14. Projeto de captação e retenção de águas pluviais (área construída >= 500 m²)",
+     "15. ART de profissional habilitado para o licenciamento ambiental",
+     "16. Plano de arborização do passeio público",
+     "17. Outros documentos conforme características da atividade"
+    ],
+    "LI": [
+     "1. Formulário de Obra Civil preenchido e assinado",
+     "2. Cópia do documento de identificação dos responsáveis legais",
+     "3. Projeto de construção aprovado pelo Planejamento, com ART/RRT",
+     "4. Memorial Descritivo do Projeto Arquitetônico com cronograma, com ART",
+     "5. Layout do prédio e demais áreas",
+     "6. Projeto de Arborização do passeio público (Lei 4.966/2020)",
+     "7. Projeto de Reposição Florestal Obrigatória (RFO)",
+     "8. Projeto de Tratamento de Efluentes (se gerar efluentes), ART/AFT",
+     "9. PGRCC com ART",
+     "10. ART de profissional habilitado para o licenciamento ambiental",
+     "11. Projeto de captação e retenção de águas pluviais (>= 500 m²)",
+     "12. Alvará dos Bombeiros (ou protocolo PPCI com ART)",
+     "13. Outros documentos conforme características da atividade"
+    ]
+   }
+  },
+  "atividades_industriais": {
+   "nome": "ATIVIDADES INDUSTRIAIS",
+   "palavras": [
+    [
+     "ATIVIDADES INDUSTRIAIS"
+    ],
+    [
+     "FORMULARIO ILAI"
+    ]
+   ],
+   "por_licenca": {
+    "LP": [
+     "1. Requerimento padrão assinado pelo empreendedor",
+     "2. Formulário de Licenciamento Ambiental preenchido e assinado",
+     "3. Cópia do CNPJ",
+     "4. Contrato social da empresa",
+     "5. Cópia do documento de identificação dos responsáveis legais",
+     "6. ART do responsável técnico pelo licenciamento ambiental",
+     "7. Relatório técnico-fotográfico da área",
+     "8. Croqui do terreno com quadro de áreas",
+     "9. Certidão de Zoneamento",
+     "10. Justificativa da ampliação (em caso de ampliação)",
+     "11. Matrícula atualizada + contrato de locação (se aluguel)",
+     "12. Laudo de Cobertura Vegetal (LCV), com ART",
+     "13. Laudo de Fauna (LF), com ART",
+     "14. Laudo geológico, com ART",
+     "15. Projeto de captação e retenção de águas pluviais (>= 500 m²)",
+     "16. Outros documentos conforme características da atividade"
+    ],
+    "LI": [
+     "1. Requerimento padrão assinado",
+     "2. Formulário preenchido e assinado, com ART",
+     "3. Projeto de construção aprovado pelo Planejamento, com ART",
+     "4. Memorial Descritivo do Projeto Arquitetônico com cronograma, com ART",
+     "5. Layout do prédio industrial e demais áreas",
+     "6. Projeto de Tratamento de Efluentes (se gerar efluentes industriais) - FEPAM 05/2017",
+     "7. Projeto de Exaustão e Coleta de Particulados (se houver emissões) - FEPAM 01/2018",
+     "8. Projeto de Arborização do passeio público (Lei 4.966/2020)",
+     "9. PGRCC com ART",
+     "10. Demais documentos solicitados na LP",
+     "11. Projeto de captação e retenção de águas pluviais (>= 500 m²)",
+     "12. Projeto de Reposição Florestal Obrigatória (RFO)",
+     "13. Alvará dos Bombeiros (ou protocolo PPCI com ART)",
+     "14. Outros documentos conforme características da atividade"
+    ],
+    "LO": [
+     "1. Requerimento padrão assinado",
+     "2. Formulário preenchido e assinado, com ART",
+     "3. Cópia do Contrato Social",
+     "4. Cópia do CNPJ",
+     "5. Cópia do Alvará Municipal",
+     "6. Cópia da matrícula",
+     "7. Cópia do contrato de locação (se for o caso)",
+     "8. Comprovante do CTF (IBAMA)",
+     "9. Alvará dos Bombeiros vigente (ou protocolo PPCI com ART/RRT)",
+     "10. Relatório técnico-fotográfico do processo produtivo",
+     "11. PGRS da empresa, com ART",
+     "12. Sistema de tratamento de efluentes: memorial + projeto com ART (ou LO da terceirizada)",
+     "13. CDF - Certificado de Destinação Final (em caso de LOR)",
+     "14. Outros documentos conforme características da atividade (lenha: Cadastro Florestal)",
+     "15. Alvará da Vigilância Sanitária vigente (poderá ser exigido)",
+     "16. Planta baixa com ART (poderá ser exigido)"
+    ],
+    "LOR": [
+     "1. Formulário de Licenciamento Ambiental (ILAI) preenchido, com ART",
+     "2. Cópia do Contrato Social",
+     "3. Cópia do CNPJ",
+     "4. Cópia do Alvará Municipal / Certidão de Zoneamento",
+     "5. Cópia da matrícula do imóvel",
+     "6. Cópia do contrato de locação (se for o caso)",
+     "7. Comprovante do CTF (IBAMA)",
+     "8. Alvará de Bombeiros vigente (ou protocolo PPCI com ART/RRT)",
+     "9. Relatório técnico-fotográfico do processo produtivo",
+     "10. PGRS da empresa, com ART",
+     "11. Utilização de lenha: Certidão do Cadastro Florestal",
+     "12. Projeto de Arborização do passeio público (Lei 4.966/2020)",
+     "13. Outros documentos conforme características da atividade",
+     "14. Alvará da Vigilância Sanitária vigente (poderá ser exigido)",
+     "15. Planta baixa com ART (poderá ser exigido)",
+     "16. Declaração autenticada em cartório (poderá ser exigido)"
+    ],
+    "RENOVACAO": [
+     "1. Requerimento solicitando renovação do Licenciamento Ambiental",
+     "2. Formulário (ILAI) preenchido, com ART",
+     "3. Cópia da licença existente",
+     "4. Declaração de não alteração do processo produtivo",
+     "5. Cópia do Alvará de Bombeiros vigente",
+     "6. Cópia do Contrato Social",
+     "7. Cópia do CNPJ",
+     "8. Relatório técnico-fotográfico do processo produtivo",
+     "9. PGRS da empresa, com ART",
+     "10. Outros documentos conforme características da atividade",
+     "11. Alvará da Vigilância Sanitária vigente (poderá ser exigido)",
+     "12. Planta baixa com ART (poderá ser exigido)"
+    ],
+    "_nota_LIR": "LIR = documentos dos itens I (LP) e II (LI), conforme o documento de referência."
+   }
+  },
+  "erb": {
+   "nome": "ESTAÇÃO RÁDIO-BASE (ERB)",
+   "palavras": [
+    [
+     "ESTACAO RADIO-BASE"
+    ],
+    [
+     "ESTACAO RADIO BASE"
+    ],
+    [
+     "RADIO-BASE"
+    ]
+   ],
+   "por_licenca": {
+    "LP": [
+     "1. Procuração do empreendedor para técnico/consultoria",
+     "2. Formulário de Licenciamento para ERB preenchido",
+     "3. Cópia do Estudo de Viabilidade Urbanística (EVU)",
+     "4. Cópia da matrícula atualizada do imóvel",
+     "5. Cópia do contrato de locação da área da torre",
+     "6. Contrato social",
+     "7. CNPJ",
+     "8. Cópia do documento de identificação dos responsáveis legais",
+     "9. Certidão de zoneamento",
+     "10. Planta da torre com ART",
+     "11. Estudo de Impacto de Vizinhança (EIV)",
+     "12. Laudo de cobertura vegetal do lote, com ART",
+     "13. Levantamento de impacto de vizinhança, com ART",
+     "14. ART para o licenciamento ambiental",
+     "15. Comprovante do CTF (IBAMA)",
+     "16. Justificativa técnica da necessidade da torre, com ART",
+     "17. Projeto de Arborização do passeio público (Lei 4.966/2020)"
+    ],
+    "LI": [
+     "1. Procuração do empreendedor",
+     "2. Formulário de Licenciamento para ERB preenchido",
+     "3. Cópia da LP e demais documentos solicitados na LP",
+     "4. Projeto arquitetônico aprovado pelo Planejamento",
+     "5. PGRCC",
+     "6. Cronograma das obras",
+     "7. Estudo de Viabilidade nos termos da Lei Municipal"
+    ],
+    "LO": [
+     "1. Procuração do empreendedor",
+     "2. Formulário de Licenciamento para ERB preenchido",
+     "3. Cópia da LI e demais documentos solicitados na LI",
+     "4. Cópia da matrícula atualizada do imóvel",
+     "5. Cópia do contrato de locação da área da torre",
+     "6. Comprovante de Contratação de Seguro Contra Terceiros em vigor",
+     "7. Laudo radiométrico com ART",
+     "8. ART para o licenciamento ambiental",
+     "9. Comprovante de autorização da Anatel",
+     "10. Certificado de calibração do medidor de campo eletromagnético"
+    ],
+    "RENOVACAO": [
+     "1. Procuração do empreendedor",
+     "2. Formulário de Licenciamento para ERB preenchido",
+     "3. Cópia da LO anterior",
+     "4. Cópia da matrícula atualizada do imóvel",
+     "5. Cópia do contrato de locação da área da torre",
+     "6. Comprovante de Seguro Contra Terceiros em vigor",
+     "7. Laudo radiométrico com ART",
+     "8. ART para o licenciamento ambiental",
+     "9. Comprovante de autorização da Anatel",
+     "10. Certificado de calibração do medidor de campo"
+    ],
+    "LOR": [
+     "1. Procuração do empreendedor",
+     "2. Formulário de Licenciamento para ERB preenchido",
+     "3. Contrato social",
+     "4. CNPJ",
+     "5. Cópia do documento de identificação dos responsáveis legais",
+     "6. Cópia da matrícula atualizada",
+     "7. Cópia do contrato de locação da área da torre",
+     "8. Comprovante de Seguro Contra Terceiros em vigor",
+     "9. Laudo radiométrico com ART",
+     "10. ART para o licenciamento ambiental",
+     "11. Comprovante de autorização da Anatel",
+     "12. Certificado de calibração do medidor de campo",
+     "13. Projeto de Arborização do passeio público (Lei 4.966/2020)"
+    ]
+   }
+  },
+  "parcelamento_loteamentos": {
+   "nome": "PARCELAMENTO DE SOLO/LOTEAMENTOS",
+   "palavras": [
+    [
+     "PARCELAMENTO DE SOLO",
+     "LOTEAMENTO"
+    ]
+   ],
+   "por_licenca": {
+    "LP": [
+     "1. Formulário de Informações para Licenciamento de Loteamento",
+     "2. Contrato social",
+     "3. CNPJ",
+     "4. Cópia da matrícula atualizada",
+     "5. Certidão de zoneamento afirmando que a área é loteável",
+     "6. Declaração de viabilidade de abastecimento de água da CORSAN",
+     "7. Declaração de viabilidade de esgotamento sanitário da CORSAN",
+     "8. Declaração de viabilidade de energia elétrica da RGE",
+     "9. Declaração de viabilidade de coleta de resíduos e limpeza urbana da prefeitura",
+     "10. Projeto urbanístico com planta das vias de acesso",
+     "11. Croqui da área total do lote",
+     "12. Estudo de Impacto Ambiental (EIA), com ART",
+     "13. Estudo de Impacto de Vizinhança (EIV), com ART",
+     "14. Inventário de fauna, com ART",
+     "15. Laudo de Cobertura Vegetal quali-quantitativo com mapa e APPs, com ART",
+     "16. Laudo geológico com sondagem e ensaios de infiltração, com ART",
+     "17. Laudo hidrológico (corpos hídricos, nascentes, banhados), com ART",
+     "18. Imagem de satélite colorida com a indicação do empreendimento",
+     "19. Levantamento Planialtimétrico com curvas de nível (mín. 1:1000), com ART",
+     "20. Planta de localização com entorno (100 m), recursos hídricos e APPs",
+     "21. Arquivo KMZ/KML e DWG do projeto urbanístico e APPs",
+     "22. ART de profissional habilitado responsável pelo licenciamento ambiental"
+    ],
+    "LI": [
+     "1. Formulário de Informações para Licenciamento de Loteamento",
+     "2. Cópia da LP",
+     "3. Anuência das unidades de conservação no raio de 10 km",
+     "4. Projeto urbanístico aprovado pela Prefeitura, com quadro de áreas e Memorial",
+     "5. Projeto de instalação do abastecimento de água aprovado (viabilidade da concessionária)",
+     "6. Projeto de instalação da energia elétrica aprovado (viabilidade da concessionária)",
+     "7. Projeto do sistema de tratamento de esgoto aprovado (viabilidade da concessionária)",
+     "8. Projeto de corte/aterro com volumes, tipologia e origem dos materiais",
+     "9. Plano de manejo e supressão de vegetação",
+     "10. Plano de prevenção, contenção e monitoramento de processos erosivos",
+     "11. Projeto de drenagem pluvial do loteamento, com planta e memórias de cálculo",
+     "12. Projeto de sistemas de retenção pluvial (COMDEMA 11/2025), com ART",
+     "13. Projeto de Gerenciamento de Resíduos Sólidos, com ART",
+     "14. Plano de Controle Ambiental (PCA), com ART",
+     "15. Projeto de arborização do empreendimento (Lei 4.966/2020) com cronograma",
+     "16. Projeto de transplante de vegetais (caso necessário)",
+     "17. Programa de educação ambiental com cronograma",
+     "18. Cronograma físico de implantação",
+     "19. ART de todos os projetos, planos e programas",
+     "20. Cópia do CTF (ou LO das empresas contratadas)",
+     "21. Arquivo KMZ/KML e DWG do projeto urbanístico e APPs",
+     "22. ART de profissional habilitado responsável pelo licenciamento ambiental"
+    ],
+    "LO": [
+     "1. Formulário de Informações para Licenciamento de Loteamento",
+     "2. Cópia da LI",
+     "3. Relatório de implantação das obras de urbanização",
+     "4. Relatório final do PCA, com ART",
+     "5. Relatório de execução do Programa de educação ambiental",
+     "6. Relatório de atendimento às condicionantes da LI",
+     "7. ART de profissional habilitado responsável pelo licenciamento ambiental",
+     "8. Relatório de execução do plano municipal de arborização urbana (Lei 4.966/2020)",
+     "9. Procuração do empreendedor para técnico/consultoria"
+    ],
+    "RENOVACAO": [
+     "1. Formulário de Informações para Licenciamento de Loteamento",
+     "2. Cópia da licença a ser renovada",
+     "3. Relatório de implantação das obras de urbanização",
+     "4. Relatório de atualização do PCA, com ART",
+     "5. Relatório de atendimento às condicionantes da licença",
+     "6. Atualização de certidões, atestados, anuências ou documentos vencidos",
+     "7. ART de profissional habilitado responsável pelo licenciamento ambiental",
+     "8. Procuração do empreendedor para técnico/consultoria"
+    ]
+   }
+  },
+  "parcelamento_desmembramento": {
+   "nome": "PARCELAMENTO DE SOLO/DESMEMBRAMENTO",
+   "palavras": [
+    [
+     "PARCELAMENTO DE SOLO",
+     "DESMEMBRAMENTO"
+    ]
+   ],
+   "por_licenca": {
+    "LP": [
+     "1. Procuração do empreendedor para técnico/consultoria",
+     "2. Diretrizes Urbanísticas do Depto. de Planejamento",
+     "3. Formulário de Informações para Licenciamento de Desmembramento",
+     "4. Contrato social",
+     "5. CNPJ",
+     "6. Cópia do documento de identificação dos responsáveis legais (com CPF)",
+     "7. Cópia da matrícula atualizada",
+     "8. Certidão zoneamento",
+     "9. Laudo de cobertura vegetal, com ART",
+     "10. Laudo de fauna, com ART",
+     "11. Laudo geológico, com ART",
+     "12. Anuência das unidades de conservação no raio de 10 km",
+     "13. Proposta de projeto urbanístico com planta das vias de acesso pré-aprovada",
+     "14. Croqui da área total do lote",
+     "15. Imagem de satélite colorida com a indicação do empreendimento",
+     "16. Levantamento Planialtimétrico com curvas de nível (mín. 1:1000), com ART",
+     "17. Planta de localização com entorno (100 m), recursos hídricos e APPs",
+     "18. ART de profissional habilitado responsável pelo licenciamento ambiental"
+    ],
+    "LI": [
+     "1. Procuração do empreendedor",
+     "2. Formulário de Informações para Licenciamento de Desmembramento",
+     "3. Cópia da LP",
+     "4. Projeto urbanístico pré-aprovado pela Prefeitura com quadro de áreas e Memorial",
+     "5. Cópia do CTF (ou LO das empresas contratadas)",
+     "6. ART de profissional habilitado responsável pelo licenciamento ambiental"
+    ]
+   }
+  },
+  "criacao_animais": {
+   "nome": "CRIAÇÃO DE ANIMAIS",
+   "palavras": [
+    [
+     "CRIACAO DE ANIMAIS"
+    ],
+    [
+     "CRIACAO ANIMAL"
+    ]
+   ],
+   "por_licenca": {
+    "LP": [
+     "1. Procuração do empreendedor para técnico/consultoria",
+     "2. Formulário de Informações para Licenciamento de Criação Animal",
+     "3. Cópia da matrícula atualizada ou CCIR",
+     "4. Cópia do contrato de locação ou arrendamento (se for o caso)",
+     "5. Cópia do CNPJ/CPF do empreendedor",
+     "6. Laudo fotográfico/descritivo do ambiente com coordenadas",
+     "7. Laudo de cobertura vegetal (LCV), com ART",
+     "8. Descrição do sistema de criação e quantificação de cabeças",
+     "9. Planta de localização dos galpões, baias, áreas de pastejo etc.",
+     "10. Protocolo do CAR (Cadastro Ambiental Rural)",
+     "11. ART de profissional habilitado para o licenciamento ambiental"
+    ],
+    "RENOVACAO": [
+     "1. Requerimento padrão solicitando o Licenciamento",
+     "2. Formulário de Informações de Criação Animal",
+     "3. Cópia da matrícula do imóvel",
+     "4. Cópia da identidade e CPF",
+     "5. Descrição do sistema de criação e quantificação de cabeças",
+     "6. Projeto dos galpões, baias, áreas de pastejo etc.",
+     "7. Protocolo do CAR",
+     "8. ART de profissional habilitado para o licenciamento ambiental"
+    ],
+    "_nota": "Documento de referência define a MESMA listagem para as 'Primeiras Licenças (LP, LIR e LOR)'; LI não tem listagem própria (usa a da LP por equivalência de fase inicial)."
+   },
+   "equivalencias": {
+    "LIR": "LP",
+    "LOR": "LP",
+    "LI": "LP"
+   }
+  },
+  "abertura_acude": {
+   "nome": "ABERTURA DE AÇUDE",
+   "palavras": [
+    [
+     "ABERTURA DE ACUDE"
+    ],
+    [
+     "ACUDE OU DRENAGEM"
+    ]
+   ],
+   "por_licenca": {
+    "UNICO": [
+     "1. Requerimento solicitando a Licença/Autorização",
+     "2. Formulário de Licenciamento de Abertura de Açude ou Drenagem",
+     "3. Cópia de comprovante de residência para o endereço da obra",
+     "4. Cópia da matrícula atualizada",
+     "5. Documentos de identificação do proprietário e declaração de ciência",
+     "6. Laudo descritivo do ambiente local com LCV, com ART",
+     "7. Projeto técnico do sistema (planta, croqui em corte, taludes e vertedouros), com ART",
+     "8. Descrição da finalidade do empreendimento",
+     "9. Protocolo da Outorga de direito de uso da água (DRH - SEMA/RS)",
+     "10. Protocolo do CAR (Cadastro Ambiental Rural)",
+     "11. ART de profissional habilitado para o licenciamento ambiental",
+     "12. Plano de arborização do passeio público (em zona urbana)"
+    ]
+   }
+  },
+  "cemiterios": {
+   "nome": "CEMITÉRIOS",
+   "palavras": [
+    [
+     "CEMITERIO"
+    ]
+   ],
+   "por_licenca": {
+    "UNICO": [
+     "1. Requerimento padrão para solicitar licença",
+     "2. Declaração de ciência da necessidade de licenciamento",
+     "3. Formulário de Licenciamento Ambiental preenchido",
+     "4. Alvará de Localização e Funcionamento",
+     "5. Alvará dos Bombeiros (quando houver capela)",
+     "6. Dados da qualidade da água do lençol freático (CONAMA 335/2003)",
+     "7. Cópia da matrícula atualizada",
+     "8. Cópia do contrato de locação (se for o caso)",
+     "9. Projeto arquitetônico",
+     "10. PGRS - Plano de Gerenciamento de Resíduos Sólidos",
+     "11. Uso do solo no raio aproximado de 500 m",
+     "12. Área do ossário (quando houver)",
+     "13. Projeto de Arborização do passeio público (Lei 4.966/2020)",
+     "14. Todos os planos e projetos acompanhados de ART dos técnicos responsáveis",
+     "15. Projeto de retenção pluvial (área construída > 1000 m²)"
+    ],
+    "RENOVACAO": [
+     "1. Requerimento padrão para solicitar licença",
+     "2. Declaração de ciência da necessidade de licenciamento",
+     "3. Formulário de Licenciamento Ambiental",
+     "4. Alvará dos Bombeiros (quando houver capela)",
+     "5. PGRS",
+     "6. Uso do solo no raio aproximado de 500 m",
+     "7. Área do ossário (quando houver)",
+     "8. Todos os planos e projetos acompanhados de ART"
+    ]
+   }
+  },
+  "declaracao_isencao": {
+   "nome": "DECLARAÇÃO DE ISENÇÃO",
+   "palavras": [
+    [
+     "DECLARACAO DE ISENCAO"
+    ]
+   ],
+   "por_licenca": {
+    "UNICO": [
+     "1. Descrição detalhada das atividades realizadas no local, com fluxograma",
+     "2. Cópia do alvará municipal de localização",
+     "3. Cópia do cartão do CNPJ",
+     "4. Cópia do documento de identificação do responsável legal",
+     "5. Cópia do contrato social",
+     "6. Alvará dos Bombeiros vigente"
+    ]
+   }
+  },
+  "desassoreamento": {
+   "nome": "DESASSOREAMENTO DE CURSOS HÍDRICOS",
+   "palavras": [
+    [
+     "DESASSOREAMENTO"
+    ]
+   ],
+   "por_licenca": {
+    "UNICO": [
+     "1. Procuração do empreendedor para técnico/consultoria",
+     "2. Formulário de Licenciamento de Desassoreamento preenchido e assinado",
+     "3. Desenho técnico georreferenciado do curso hídrico e da projeção",
+     "4. Laudo de cobertura vegetal (LCV), com ART",
+     "5. ART de profissional habilitado para o licenciamento ambiental",
+     "6. Memorial descritivo da área com fotografias e coordenadas",
+     "7. Cronograma de execução",
+     "8. Cópia da LO da empresa responsável pela execução da obra",
+     "9. Levantamento fotográfico com data e pontos de GPS",
+     "10. Projeto de execução com ART do técnico responsável"
+    ]
+   }
+  },
+  "exploracao_eventual_arvores": {
+   "nome": "EXPLORAÇÃO EVENTUAL DE ÁRVORES NATIVAS COM FINS COMERCIAIS",
+   "palavras": [
+    [
+     "EXPLORACAO EVENTUAL"
+    ]
+   ],
+   "por_licenca": {
+    "UNICO": [
+     "1. Matrícula atualizada do Registro de Imóvel ou Comprovante de propriedade/posse",
+     "2. Declaração de enquadramento como pequeno produtor rural (Lei 11.326/2006)",
+     "3. Projeto Técnico (identificação, objetivo/justificativa, marcação em campo, ART)",
+     "4. Laudo de cobertura vegetal da área a ser manejada, com ART",
+     "5. Mapa da propriedade georreferenciado (shape file, SIRGAS 2000)",
+     "6. Nova Versão da Planilha Padrão Inventário Florestal (SINAFLOR/IBAMA)"
+    ]
+   }
+  },
+  "arvores_imunes_corte": {
+   "nome": "SUPRESSÃO, PODAS OU TRANSPLANTE DE ÁRVORES NATIVAS IMUNES AO CORTE",
+   "palavras": [
+    [
+     "IMUNES AO CORTE"
+    ]
+   ],
+   "por_licenca": {
+    "UNICO": [
+     "1. Matrícula atualizada do Registro de Imóveis ou Comprovante de propriedade",
+     "2. Projeto Técnico para Supressão/Podas/Transplante, com ART",
+     "3. Croqui de localização",
+     "4. Nova versão da Planilha Padrão Inventário Florestal (SINAFLOR/IBAMA)"
+    ]
+   }
+  },
+  "baixo_impacto_app": {
+   "nome": "INTERVENÇÃO/SUPRESSÃO DE VEGETAÇÃO DE BAIXO IMPACTO EM APP (AUTORIZAÇÃO GERAL)",
+   "palavras": [
+    [
+     "BAIXO IMPACTO",
+     "APP"
+    ],
+    [
+     "BAIXO IMPACTO AMBIENTAL"
+    ]
+   ],
+   "por_licenca": {
+    "UNICO": [
+     "1. Matrícula atualizada do Registro de Imóveis ou Comprovante de propriedade",
+     "2. Projeto Técnico (identificação, objetivo/justificativa, marcação em campo, ART)",
+     "3. Laudo de cobertura vegetal da área a ser manejada, com ART",
+     "4. Mapa da propriedade georreferenciado (shape file, SIRGAS 2000)",
+     "5. Croqui de localização",
+     "6. Planilha Inventário Florestal Amostral (SINAFLOR/IBAMA)"
+    ]
+   }
+  },
+  "manejo_estagio_medio_2ha": {
+   "nome": "MANEJO DE VEGETAÇÃO NATIVA EM ESTÁGIO MÉDIO ATÉ 2 HA",
+   "palavras": [
+    [
+     "ESTAGIO MEDIO",
+     "2 HECTARES"
+    ],
+    [
+     "ESTAGIO MEDIO DE REGENERACAO"
+    ]
+   ],
+   "por_licenca": {
+    "UNICO": [
+     "1. Matrícula atualizada do Registro de Imóvel ou Comprovante de propriedade",
+     "2. Declaração de enquadramento como pequeno produtor rural (Lei 11.326/2006)",
+     "3. Projeto Técnico, com ART",
+     "4. Laudo de cobertura vegetal da área a ser manejada, com ART",
+     "5. Mapa da propriedade georreferenciado (shape file, SIRGAS 2000)",
+     "6. Planilha Inventário Florestal Amostral (SINAFLOR/IBAMA)"
+    ]
+   }
+  },
+  "supressao_estagio_inicial_agropecuaria": {
+   "nome": "SUPRESSÃO DE VEGETAÇÃO EM ESTÁGIO INICIAL/FORMAÇÃO FLORESTAL PURA PARA USO AGROPECUÁRIO",
+   "palavras": [
+    [
+     "ESTAGIO INICIAL",
+     "AGROPECUARIA"
+    ],
+    [
+     "FORMACAO FLORESTAL PURA"
+    ]
+   ],
+   "por_licenca": {
+    "UNICO": [
+     "1. Matrícula atualizada do Registro de Imóvel ou Comprovante de propriedade",
+     "2. Projeto Técnico, com ART",
+     "3. Laudo de cobertura vegetal da área a ser manejada, com ART",
+     "4. Laudo de Fauna, com ART",
+     "5. Mapa da propriedade georreferenciado (shape file, SIRGAS 2000)",
+     "6. Planilha Inventário Florestal Amostral (SINAFLOR/IBAMA)"
+    ]
+   }
+  },
+  "mineracao": {
+   "nome": "MINERAÇÃO",
+   "palavras": [
+    [
+     "MINERACAO"
+    ],
+    [
+     "EXTRACAO MINERAL"
+    ],
+    [
+     "LAVRA"
+    ]
+   ],
+   "por_licenca": {
+    "LM": [
+     "1. Contrato de locação da área",
+     "2. Cópia da matrícula atualizada",
+     "3. Contrato Social da empresa",
+     "4. Contrato da Empresa com o Corpo Técnico",
+     "5. Extensão da área em hectares (dois decimais)",
+     "6. Imagem do Google Earth colorida com a demarcação da área",
+     "7. Polígono com curvas de nível e vértices locados",
+     "8. Quadro de coordenadas (SIRGAS 2000) dos vértices",
+     "9. ART do responsável técnico (Geólogo/Eng. de Minas)",
+     "10. Procuração do empreendedor para técnico/consultoria"
+    ],
+    "LP": [
+     "1. Procuração do empreendedor para técnico/consultoria",
+     "2. Formulário de Informações para Licenciamento de Extração Mineral",
+     "3. Contrato social",
+     "4. CNPJ",
+     "5. Cópia da matrícula atualizada",
+     "6. Cópia do contrato de locação",
+     "7. Declaração dos proprietários autorizando as atividades minerárias",
+     "8. Protocolo do CAR",
+     "9. Certidão zoneamento (mineração permitida na área)",
+     "10. Requerimento de registro de licença no DNPM",
+     "11. Imagem de satélite colorida com a indicação do empreendimento",
+     "12. Croqui da área total do lote com a poligonal das lavras",
+     "13. Laudo de impactos ambientais, com ART",
+     "14. Inventário de fauna, com ART",
+     "15. Laudo de Cobertura Vegetal com mapa e APPs, com ART",
+     "16. Relatório de Controle Ambiental (RCA)",
+     "17. Laudo geológico com sondagem e caracterização da jazida, com ART",
+     "18. Mapa topográfico geológico da Área de Influência Indireta (mín. 1:10.000)",
+     "19. Planta planialtimétrica da Área de Influência Direta (mín. 1:2.000), com ART"
+    ],
+    "_nota": "Documento de referência: listagem da LP capturada até o item 19 (possível truncamento da fonte) - conferir com a SEMA."
+   }
+  }
+ }
+}

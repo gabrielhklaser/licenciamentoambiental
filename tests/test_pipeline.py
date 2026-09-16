@@ -1078,3 +1078,78 @@ def test_prad_e_autorizacao_no_painel_da_etapa2():
         metricas = {m.label: m.value for m in at.metric}
         assert metricas.get("Licença pleiteada") == tipo, metricas
         assert metricas.get("Taxa (URMs)") == taxa_esperada, metricas
+
+
+# ==============================================================================
+# BANCO DE CHECKLISTS POR TIPO DE FORMULÁRIO (cabeçalho do HTML + licença)
+# ==============================================================================
+def _formulario_do_tipo(header: str) -> str:
+    return (f"<html><head><title>{header}</title></head><body>"
+            f"<h1>Formulário para Licenciamento Ambiental de: {header}</h1>"
+            "<h2>1. IDENTIFICAÇÃO</h2><table><tr><td>Nome/Razão Social:</td>"
+            "<td>Teste Ltda</td></tr></table></body></html>")
+
+
+def test_banco_cabecalho_comercios_e_servicos_lp():
+    """Cabeçalho 'COMÉRCIOS E SERVIÇOS' + LP na Etapa 1: listagem vem do BANCO
+    (16 docs), NÃO do corpo do formulário."""
+    parser = FormularioParser(conteudo_html=_formulario_do_tipo("COMÉRCIOS E SERVIÇOS"))
+    parser.parse()
+    d = parser.aplicar_pleito_manual("LP", "Primeira licença")
+    assert d["tipo_formulario"]["chave"] == "comercios_servicos"
+    lista = d["documentos_exigidos"]["lista_deduplicada"]
+    assert len(lista) == 16, lista
+    assert lista[0].startswith("1. Formulário de Licenciamento")
+    assert "banco de checklists" in d["documentos_exigidos"]["fonte_checklist"]
+
+
+def test_banco_erb_lor_criacao_animais_lir_acude_unico():
+    """ERB + LOR -> 13 docs próprios; Criação de Animais + LIR -> lista da LP
+    (equivalência do documento de referência); Açude (processo único) -> 12
+    docs para qualquer licença."""
+    p_erb = FormularioParser(conteudo_html=_formulario_do_tipo("ESTAÇÃO RÁDIO-BASE"))
+    p_erb.parse()
+    d = p_erb.aplicar_pleito_manual("LOR", "Primeira licença")
+    assert len(d["documentos_exigidos"]["lista_deduplicada"]) == 13
+    assert any("Laudo radiométrico" in x for x in
+               d["documentos_exigidos"]["lista_deduplicada"])
+
+    p_cri = FormularioParser(conteudo_html=_formulario_do_tipo("CRIAÇÃO DE ANIMAIS"))
+    p_cri.parse()
+    d2 = p_cri.aplicar_pleito_manual("LIR", "Primeira licença")
+    lista2 = d2["documentos_exigidos"]["lista_deduplicada"]
+    assert len(lista2) == 11
+    assert any("Criação Animal" in x for x in lista2)
+
+    p_acude = FormularioParser(conteudo_html=_formulario_do_tipo("ABERTURA DE AÇUDE"))
+    p_acude.parse()
+    d3 = p_acude.aplicar_pleito_manual("AUTORIZACAO", "Primeira licença")
+    assert len(d3["documentos_exigidos"]["lista_deduplicada"]) == 12
+    assert any("Outorga" in x for x in d3["documentos_exigidos"]["lista_deduplicada"])
+
+
+def test_banco_industriais_renovacao_e_lir_soma_dedup():
+    """Industriais: RENOVAÇÃO tem listagem própria (12); LIR soma LP+LI do
+    banco com desduplicação (menos que a soma bruta)."""
+    p = FormularioParser(conteudo_html=_formulario_do_tipo("ATIVIDADES INDUSTRIAIS"))
+    p.parse()
+    d_ren = p.aplicar_pleito_manual("LP", "Renovação")
+    assert len(d_ren["documentos_exigidos"]["lista_deduplicada"]) == 12
+    assert "RENOVACAO" in d_ren["documentos_exigidos"]["por_fase"]
+
+    d_lir = p.aplicar_pleito_manual("LIR", "Primeira licença")
+    lista = d_lir["documentos_exigidos"]["lista_deduplicada"]
+    assert 20 < len(lista) < 30  # 16 + 14 brutos, com repetidos suprimidos
+
+
+def test_banco_nao_casa_condominios_nem_troca_listagem():
+    """O formulário de CONDOMÍNIOS HORIZONTAIS/VERTICAIS (Maria Belle) NÃO é
+    confundido com 'Parcelamento/Loteamentos' nem 'Desmembramento': sem
+    entrada no banco, usa a listagem PRÓPRIA 'Documentos Requeridos' (14)."""
+    parser = FormularioParser(str(EXEMPLOS / REAL))
+    parser.parse()
+    d = parser.aplicar_pleito_manual("LP", "Primeira licença")
+    assert d["tipo_formulario"] is None
+    lista = d["documentos_exigidos"]["lista_deduplicada"]
+    assert len(lista) == 14
+    assert "Documentos Requeridos" in d["documentos_exigidos"]["fonte_checklist"]
