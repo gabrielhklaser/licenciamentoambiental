@@ -336,6 +336,10 @@ def pagina_analise() -> None:
         c2.caption(f"via {pleito['metodo_deteccao']}")
     c3.metric("Triagem", (dados.get("status_triagem") or "—").replace("_", " ").upper())
     c4.metric("Taxa (URMs)", _fmt_urm(financeiro.get("total_urm")))
+    if financeiro.get("erro"):
+        c4.caption(f"⚠️ {str(financeiro['erro'])[:60]}")
+    elif financeiro.get("total_urm") is None:
+        c4.caption("Formulário não lido - taxa indisponível")
 
     st.divider()
 

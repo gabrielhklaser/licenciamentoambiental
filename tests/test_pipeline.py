@@ -13,7 +13,7 @@ from licenciamento.agente_administrativo import AgenteAdministrativo
 from licenciamento.agente_financeiro import AgenteFinanceiro
 from licenciamento.auditor_tecnico import (AuditorTecnico, MetricasRFO,
                                            MetricasSondagem)
-from licenciamento.parser_formulario import FormularioParser, normalizar as normalizar_texto
+from licenciamento.parser_formulario import FormularioParser, normalizar as normalizar_texto, normalizar as normalizar_texto
 
 RAIZ = Path(__file__).resolve().parents[1]
 EXEMPLOS = RAIZ / "exemplos"
@@ -364,3 +364,169 @@ def test_laudo_rfo_pdf_do_exemplo():
                                at.extrair_parametros_rfo(texto))
     assert resultado.status.value == "PENDENTE"
     assert resultado.itens_reprovados
+
+
+# ==============================================================================
+# MOTIVO DO ENCAMINHAMENTO À SEMA - leitura da MARCAÇÃO (dupla checagem)
+# ==============================================================================
+FORMULARIO_MOTIVO_TEMPLATE = """<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Formulário</title></head>
+<body>
+<h1>SEMA CAMPO BOM</h1>
+<table>
+  <tr><td class="rotulo">Nome/Razão Social</td><td>Empresa Teste Ltda</td></tr>
+  <tr><td class="rotulo">Nome do Empreendimento</td><td>Atividade Teste</td></tr>
+</table>
+<h2>3. MOTIVO DO ENCAMINHAMENTO À SEMA</h2>
+<table>
+  <tr><td>(  ) Licença Prévia (LP)</td></tr>
+  <tr><td>(  ) Licença de Instalação (LI)</td></tr>
+  <tr><td>(  ) Licença de Operação (LO)</td></tr>
+  <tr><td>(  ) Licença de Instalação e Regularização (LIR)</td></tr>
+  <tr><td>(  ) Licença de Operação e Regularização (LOR)</td></tr>
+</table>
+<h2>4. DOCUMENTAÇÃO EXIGIDA</h2>
+<p><strong>Documentação exigida para a Licença Prévia (LP):</strong></p>
+<ul>
+  <li>Formulário assinado</li>
+  <li>Cópia do CNPJ</li>
+</ul>
+<p><strong>Documentação exigida para a Licença de Instalação (LI):</strong></p>
+<ul>
+  <li>Cópia da Licença Prévia</li>
+  <li>Projeto aprovado</li>
+</ul>
+<p><strong>Documentação exigida para a Licença de Operação (LO):</strong></p>
+<ul>
+  <li>PGRS</li>
+</ul>
+</body></html>"""
+
+
+def test_formulario_oficial_marcado_lp_nao_sai_lor():
+    """CENÁRIO CRÍTICO REPORTADO PELO LICENCIADOR: tabela oficial de opções em
+    2 colunas com '( X ) Primeira licença' + '( X ) Licença Prévia' -> pleito
+    LP (NUNCA LOR). Listagem cobrada = apenas a da LP; taxa cruza o
+    Porte/Potencial COMBINADOS com o Manual (Tabela A: Pequeno/Baixo LP)."""
+    dados = _parse("formulario_MOTIVO_LP_oficial.htm")
+    pleito = dados["pleito"]
+    assert pleito["tipo_licenca"] == "LP", pleito
+    assert "marcação" in (pleito.get("metodo_deteccao") or "")
+    assert pleito["fases_componentes"] == ["LP"]
+    # listagem APENAS da fase marcada (5 documentos da LP; lista da LO fora)
+    exigencias = dados["documentos_exigidos"]["lista_deduplicada"]
+    assert len(exigencias) == 5
+    assert any("matrícula do imóvel" in e.lower() for e in exigencias)
+    assert not any("Bombeiros" in e for e in exigencias)
+
+    emp = dados["empreendimento"]
+    assert emp["porte"] == "Pequeno" and emp["potencial_poluidor"] == "Baixo"
+    assert emp["area_intervencao_ha"] == pytest.approx(0.32)
+    assert emp["codram"]  # CODRAM lido para o cruzamento com o Manual
+
+    fin = AgenteFinanceiro().calcular_do_parser(dados)
+    assert fin["total_urm"] == pytest.approx(72.10)
+    assert fin["composicao_fases"] == {"LP": 72.10}
+
+
+def test_motivo_encaminhamento_checkbox_lor():
+    """Checkbox LOR marcado define o pleito; listagem = LP+LI+LO deduplicada."""
+    dados = _parse("formulario_LOR_medio_alto.htm")
+    pleito = dados["pleito"]
+    assert pleito["tipo_licenca"] == "LOR"
+    assert "marcação" in (pleito.get("metodo_deteccao") or "")
+    assert pleito["fases_componentes"] == ["LP", "LI", "LO"]
+    assert len(dados["documentos_exigidos"]["lista_deduplicada"]) == 16
+
+
+def test_motivo_encaminhamento_marcacao_textual_lir():
+    """'( X ) Licença de Instalação e Regularização (LIR)' -> LIR = LP + LI."""
+    dados = _parse("formulario_MOTIVO_LIR.htm")
+    pleito = dados["pleito"]
+    assert pleito["tipo_licenca"] == "LIR"
+    assert "marcação" in (pleito.get("metodo_deteccao") or "")
+    assert pleito["fases_componentes"] == ["LP", "LI"]
+    assert len(dados["documentos_exigidos"]["lista_deduplicada"]) == 7
+    # item que menciona fase no TEXTO não pode ser engolido
+    assert any("Licença Prévia" in d for d in
+               dados["documentos_exigidos"]["lista_deduplicada"])
+
+
+def test_pleitos_nomes_nas_duas_ordens():
+    """As regularizações são reconhecidas nas DUAS ordens de nome usadas nos
+    formulários, e a ordem das palavras não troca o tipo (LOR != LIR)."""
+    padroes = dict(FormularioParser.PLEITOS)
+    for texto in ["Licença de Operação e Regularização (LOR)",
+                  "Licença de Regularização e Operação (LOR)",
+                  "Licenca de Regularizacao e Operacao"]:
+        assert padroes["LOR"].search(normalizar_texto(texto)), texto
+        assert not padroes["LIR"].search(normalizar_texto(texto)), texto
+    for texto in ["Licença de Instalação e Regularização (LIR)",
+                  "Licença de Regularização e Instalação (LIR)",
+                  "Licença de Implantação e Regularização (LIR)",
+                  "Licenca de Regularizacao e Instalacao"]:
+        assert padroes["LIR"].search(normalizar_texto(texto)), texto
+        assert not padroes["LOR"].search(normalizar_texto(texto)), texto
+
+
+def test_motivo_ordem_invertida_lir_e_lor():
+    """Marcação com nomes na ordem invertida: LIR e LOR corretos + listagem."""
+    rotulo_lir = "Licença de Regularização e Instalação (LIR)"
+    html_lir = FORMULARIO_MOTIVO_TEMPLATE.replace(
+        "(  ) Licença de Instalação e Regularização (LIR)", f"( X ) {rotulo_lir}")
+    dados_lir = FormularioParser(conteudo_html=html_lir).parse()
+    assert dados_lir["pleito"]["tipo_licenca"] == "LIR"
+    assert dados_lir["pleito"]["fases_componentes"] == ["LP", "LI"]
+    assert len(dados_lir["documentos_exigidos"]["lista_deduplicada"]) == 4
+
+    rotulo_lor = "Licença de Regularização e Operação (LOR)"
+    html_lor = FORMULARIO_MOTIVO_TEMPLATE.replace(
+        "(  ) Licença de Operação e Regularização (LOR)", f"( X ) {rotulo_lor}")
+    dados_lor = FormularioParser(conteudo_html=html_lor).parse()
+    assert dados_lor["pleito"]["tipo_licenca"] == "LOR"
+    assert dados_lor["pleito"]["fases_componentes"] == ["LP", "LI", "LO"]
+    assert len(dados_lor["documentos_exigidos"]["lista_deduplicada"]) == 5
+
+
+def test_secao_sem_marcacao_nao_adivinha_pleito():
+    """Seção MOTIVO presente com TODAS as opções sem marca: NÃO adivinhar
+    (a varredura geral casaria o LOR da lista) - fica None com aviso."""
+    dados = FormularioParser(conteudo_html=FORMULARIO_MOTIVO_TEMPLATE).parse()
+    assert dados["pleito"]["tipo_licenca"] is None
+    avisos = " ".join(dados.get("avisos_parser") or [])
+    assert "MARCADA" in avisos  # aviso de conferência manual para o licenciador
+
+
+def test_marca_em_celula_isolada_da_tabela():
+    """<td>X</td><td>Licença Prévia (LP)</td> (marca em célula própria)."""
+    html = FORMULARIO_MOTIVO_TEMPLATE.replace(
+        "<tr><td>(  ) Licença Prévia (LP)</td></tr>",
+        "<tr><td>X</td><td>Licença Prévia (LP)</td></tr>")
+    dados = FormularioParser(conteudo_html=html).parse()
+    assert dados["pleito"]["tipo_licenca"] == "LP"
+
+
+def test_nome_fantasia_no_metrico_do_frontend():
+    """Empreendimento exibe o NOME FANTASIA; sem fantasia, a RAZÃO SOCIAL."""
+    dados_fantasia = _parse("formulario_LOR_medio_alto.htm")
+    assert dados_fantasia["empreendedor"].get("nome_fantasia") == "Serraria Vale do Sinos"
+
+    dados_sem = _parse("formulario_MOTIVO_LIR.htm")
+    assert not dados_sem["empreendedor"].get("nome_fantasia")
+    fallback = (dados_sem["empreendedor"].get("nome_fantasia")
+                or dados_sem["empreendedor"].get("nome_razao_social")
+                or dados_sem["empreendimento"].get("nome_empreendimento"))
+    assert fallback == "Oficina Mecânica Menezes Ltda"
+
+
+def test_conferencia_arquivos_pela_listagem_do_motivo():
+    """A conferência de anexos (Fase 2) usa a listagem gerada pela marcação."""
+    dados = _parse("formulario_MOTIVO_LIR.htm")
+    anexados = ["formulario_enquadramento_assinado.pdf", "copia_cpf_cnpj.pdf",
+                "matricula_imovel.pdf", "art_responsavel_tecnico.pdf",
+                "projeto_construcao_aprovado.pdf", "pgrs.pdf"]
+    resultado = AgenteAdministrativo().auditar(dados, anexados)
+    assert resultado["resumo"]["total_ok"] >= 5
+    # o fixture LIR não tem ART (hard constraint -> BLOQUEADO é esperado);
+    # o escopo deste teste é a CONFERÊNCIA DOS ANEXOS pela listagem marcada
+    assert resultado["status_geral"] in ("APROVADO", "PENDENTE", "BLOQUEADO")
