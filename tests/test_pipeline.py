@@ -627,6 +627,9 @@ def test_painel_etapa2_2col_circulo_lp_e_taxa():
     at = AppTest.from_file(str(RAIZ / "app.py"), default_timeout=180)
     at.run()
     assert not at.exception
+    at.radio[0].set_value("LP")                    # licença pleiteada
+    at.radio[1].set_value("Primeira licença")      # natureza
+    at.run()
     form_bytes = (EXEMPLOS / "formulario_MOTIVO_2col_circulo.htm").read_bytes()
     at.file_uploader[0].set_value(
         [("formulario_2col.htm", form_bytes, "text/html")])
@@ -639,8 +642,8 @@ def test_painel_etapa2_2col_circulo_lp_e_taxa():
     assert metricas.get("Licença pleiteada") == "LP", metricas
     assert metricas.get("Taxa (URMs)") == "72,10", metricas
     captions = " | ".join(c.value for c in at.caption)
+    assert "seleção sua na Etapa 1" in captions, captions
     assert "Primeira licença" in captions
-    assert "tabela Primeira licença/Renovação" in captions
 
 
 # ==============================================================================
@@ -724,6 +727,9 @@ def test_painel_lista_simples_mostra_lp_e_taxa():
     at = AppTest.from_file(str(RAIZ / "app.py"), default_timeout=180)
     at.run()
     assert not at.exception
+    at.radio[0].set_value("LP")
+    at.radio[1].set_value("Primeira licença")
+    at.run()
     form_bytes = (EXEMPLOS / "formulario_MOTIVO_lista_simples.htm").read_bytes()
     at.file_uploader[0].set_value(
         [("formulario_lista_simples.htm", form_bytes, "text/html")])
@@ -757,14 +763,17 @@ def test_leitura_html_bruto_com_inputs_de_formulario():
     assert dados["pleito"]["tipo_licenca"] == "LP", dados["pleito"]
 
 
-def test_confirmacao_manual_destrava_o_fluxo():
-    """ÚLTIMO MEIO (humano no circuito): formulário cuja marca NÃO sobreviveu
-    -> painel mostra '—', o licenciador confirma o tipo (LP) e o sistema
-    recalcula listagem, taxa e auditoria na hora."""
+def test_selecao_etapa1_destrava_fluxo_sem_marca_no_formulario():
+    """NOVA ABORDAGEM: o licenciador DECLARA o pleito na Etapa 1 (LP) e o
+    formulário cuja marca não sobreviveu não trava nada - a listagem segue
+    a LP e a taxa é calculada (72,10 URM, Tabela A Pequeno/Baixo)."""
     from streamlit.testing.v1 import AppTest
     at = AppTest.from_file(str(RAIZ / "app.py"), default_timeout=180)
     at.run()
     assert not at.exception
+    at.radio[0].set_value("LP")                    # licença pleiteada
+    at.radio[1].set_value("Primeira licença")      # natureza
+    at.run()
     sem_marca = (EXEMPLOS / "formulario_MOTIVO_sem_marca.htm").read_bytes()
     at.file_uploader[0].set_value(
         [("formulario_sem_marca.htm", sem_marca, "text/html")])
@@ -772,18 +781,60 @@ def test_confirmacao_manual_destrava_o_fluxo():
     assert not at.exception
     [b for b in at.button if "Analisar" in b.label][0].click()
     at.run()
-    assert not at.exception
-    metricas = {m.label: m.value for m in at.metric}
-    assert metricas.get("Licença pleiteada") == "—", metricas
-
-    # licenciador confirma LP no painel
-    radios = [r for r in at.radio]
-    radios[0].set_value("LP")           # tipo de licença
-    [b for b in at.button if "Confirmar e recalcular" in b.label][0].click()
-    at.run()
     assert not at.exception, [e.value[:300] for e in at.exception]
     metricas = {m.label: m.value for m in at.metric}
     assert metricas.get("Licença pleiteada") == "LP", metricas
     assert metricas.get("Taxa (URMs)") == "72,10", metricas
     captions = " | ".join(c.value for c in at.caption)
-    assert "confirmado manualmente" in captions, captions
+    assert "seleção sua na Etapa 1" in captions, captions
+
+
+def test_divergencia_marcao_x_selecao_sinalizada():
+    """Formulário MARCADO como LP, licenciador seleciona LOR: prevalece a
+    seleção e a divergência é sinalizada no painel (nunca em silêncio)."""
+    from streamlit.testing.v1 import AppTest
+    at = AppTest.from_file(str(RAIZ / "app.py"), default_timeout=180)
+    at.run()
+    assert not at.exception
+    at.radio[0].set_value("LOR")
+    at.radio[1].set_value("Primeira licença")
+    at.run()
+    form_bytes = (EXEMPLOS / "formulario_MOTIVO_2col_circulo.htm").read_bytes()
+    at.file_uploader[0].set_value(
+        [("formulario_2col.htm", form_bytes, "text/html")])
+    at.run()
+    assert not at.exception
+    [b for b in at.button if "Analisar" in b.label][0].click()
+    at.run()
+    assert not at.exception, [e.value[:300] for e in at.exception]
+    metricas = {m.label: m.value for m in at.metric}
+    assert metricas.get("Licença pleiteada") == "LOR", metricas
+    avisos = [w.value for w in at.warning]
+    assert any("DIVERGÊNCIA" in a for a in avisos), avisos
+
+
+def test_parser_aplicar_pleito_manual_remonta_listagem():
+    """aplicar_pleito_manual troca o tipo e RE-MONTA a listagem pelas fases
+    (LI -> só a lista da LI; LOR -> LP+LI+LO do próprio formulário) e
+    registra divergência quando a marcação lida era outra."""
+    html = (EXEMPLOS / "formulario_MOTIVO_2col_circulo.htm").read_text(
+        encoding="utf-8")
+    parser = FormularioParser(conteudo_html=html)
+    dados = parser.parse()
+    assert dados["pleito"]["tipo_licenca"] == "LP"  # lido da marcação
+
+    dados_li = parser.aplicar_pleito_manual("LI", "Renovação")
+    assert dados_li["pleito"]["tipo_licenca"] == "LI"
+    assert dados_li["pleito"]["fases_componentes"] == ["LI"]
+    assert len(dados_li["documentos_exigidos"]["lista_deduplicada"]) == 3
+    assert dados_li["pleito"]["natureza"] == "Renovação"
+
+    qtde_li = len(dados_li["documentos_exigidos"]["lista_deduplicada"])
+    dados_lor = parser.aplicar_pleito_manual("LOR", "Primeira licença")
+    # aplicar_pleito_manual muta o MESMO dict (self.dados): a contagem do LI
+    # precisa ser capturada antes
+    assert dados_lor is dados_li
+    assert dados_lor["pleito"]["fases_componentes"] == ["LP", "LI", "LO"]
+    assert "DIVERGÊNCIA" in dados_lor["pleito"]["divergencia_selecao"]
+    # listagem do LOR vem das 3 fases do PRÓPRIO formulário (deduplicada)
+    assert len(dados_lor["documentos_exigidos"]["lista_deduplicada"]) > qtde_li

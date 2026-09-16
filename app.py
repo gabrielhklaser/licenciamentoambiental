@@ -105,12 +105,21 @@ def rodape_calibracao() -> None:
 # ======================================================================
 # ETAPA 2 — Motor da análise (parser + agentes + quadro + parecer)
 # ======================================================================
-def executar_analise(arquivos: list) -> None:
+def executar_analise(arquivos: list, tipo_selecionado: str,
+                     natureza_selecionada: str = "Primeira licença") -> None:
     """Processa os arquivos carregados e monta o estado do processo.
+
+    A licença pleiteada é a DECLARADA pelo licenciador na Etapa 1 (fonte da
+    verdade do tipo): ela dirige a listagem de documentos exigidos e o cálculo
+    da taxa. O formulário HTML é lido para COMPLETAR os demais dados (CODRAM,
+    Área total de intervenção/útil, Porte/Potencial Poluidor, coordenadas).
+    Se a marcação do item 3 divergir da seleção, a divergência é sinalizada.
 
     Args:
         arquivos: lista de objetos com `.name` e `.getvalue()` (UploadedFile
             do Streamlit).
+        tipo_selecionado: sigla do pleito (LP, LI, LO, LIR, LOR).
+        natureza_selecionada: 'Primeira licença' ou 'Renovação'.
     """
     validador = ValidadorDocumentos()
 
@@ -125,6 +134,10 @@ def executar_analise(arquivos: list) -> None:
             parser = FormularioParser(conteudo_html=formularios[0].getvalue().decode(
                 "utf-8", errors="replace"))
             dados = parser.parse()
+            # o pleito DECLARADO na Etapa 1 prevalece e re-monta a listagem
+            # de documentos das fases correspondentes
+            dados = parser.aplicar_pleito_manual(
+                tipo_selecionado, natureza_selecionada)
         except Exception as exc:  # noqa: BLE001
             st.session_state.erro_formulario = str(exc)
 
@@ -205,48 +218,6 @@ def executar_analise(arquivos: list) -> None:
     st.session_state.etapa = "analise"
 
 
-FASES_DO_PLEITO = {"LIR": ["LP", "LI"], "LOR": ["LP", "LI", "LO"],
-                   "LICENCA_UNICA": ["LP", "LI", "LO"]}
-
-
-def recalcular_pleito_manual() -> None:
-    """OUTRO MEIO de leitura (humano no circuito): aplica o tipo de licença
-    CONFIRMADO pelo licenciador no painel e recalcula a listagem de
-    documentos, as taxas e a auditoria administrativa com esse tipo."""
-    proc = st.session_state.get("processo") or {}
-    dados = proc.get("dados") or {}
-    manual = st.session_state.get("pleito_manual") or {}
-    if not dados or not manual.get("tipo"):
-        return
-    pleito = dados.setdefault("pleito", {})
-    pleito["tipo_licenca"] = manual["tipo"]
-    pleito["metodo_deteccao"] = "confirmado manualmente pelo licenciador"
-    fases = FASES_DO_PLEITO.get(manual["tipo"], [manual["tipo"]])
-    pleito["fases_componentes"] = fases
-    if manual.get("natureza"):
-        pleito["natureza"] = manual["natureza"]
-    # listagem oficial das fases confirmadas (deduplicada)
-    por_fase = ((Calibracao().checklists_oficiais or {})
-                .get("documentos_por_fase", {}))
-    exigencias: list[str] = []
-    vistos: set[str] = set()
-    for fase in fases:
-        for item in por_fase.get(fase, []):
-            chave = re.sub(r"\s+", " ", (item or "").strip().lower())
-            if chave and chave not in vistos:
-                vistos.add(chave)
-                exigencias.append(item)
-    proc["exigencias"] = exigencias
-    proc["financeiro"] = AgenteFinanceiro().calcular_do_parser(dados)
-    proc["admin"] = AgenteAdministrativo().auditar(
-        dados, proc.get("arquivos") or [],
-        textos_anexados=proc.get("textos_anexos") or {})
-    proc["quadro"], proc["extras"] = ValidadorDocumentos().montar_quadro(
-        exigencias, proc.get("arquivos_analise") or [], proc.get("analises") or {})
-    proc["resumo_quadro"] = ValidadorDocumentos().resumo_quadro(proc["quadro"])
-    st.session_state.processo = proc
-
-
 # ======================================================================
 # ETAPA 1 — Página inicial (só a inserção dos documentos)
 # ======================================================================
@@ -255,17 +226,50 @@ def pagina_upload() -> None:
     st.subheader("Secretaria Municipal do Meio Ambiente — Campo Bom/RS")
 
     st.markdown(
-        "### 📤 Etapa 1 — Envie a documentação do processo\n"
-        "Suba os arquivos do requerimento para a análise prévia. "
+        "### 1️⃣ Declare a licença pleiteada\n"
+        "A licença informada aqui **dirige a análise**: define a listagem de "
+        "documentos exigidos e o cálculo da taxa (Manual de Taxas SEMA Campo "
+        "Bom). Em seguida o sistema lê o formulário HTML e completa os demais "
+        "dados (CODRAM, Área total de intervenção/útil, Porte/Potencial "
+        "Poluidor, coordenadas, responsável técnico).")
+
+    ROTULOS_TIPO = {"LP": "Licença Prévia (LP)",
+                    "LI": "Licença de Instalação (LI)",
+                    "LO": "Licença de Operação (LO)",
+                    "LIR": "Licença de Instalação e Regularização (LIR)",
+                    "LOR": "Licença de Operação e Regularização (LOR)"}
+
+    def _limitar_tipos_na_renovacao() -> None:
+        """Renovação aplica-se apenas a LP, LI e LO (LIR/LOR regularizam)."""
+        if (st.session_state.get("natureza_pleito") == "Renovação"
+                and st.session_state.get("tipo_selecionado") in ("LIR", "LOR")):
+            st.session_state.tipo_selecionado = "LP"
+
+    col_tipo, col_natureza = st.columns([1.5, 1.0])
+    with col_natureza:
+        natureza = st.radio("Natureza do pleito",
+                            ["Primeira licença", "Renovação"],
+                            key="natureza_pleito",
+                            on_change=_limitar_tipos_na_renovacao)
+    with col_tipo:
+        tipo = st.radio(
+            "Licença pleiteada",
+            (["LP", "LI", "LO"] if natureza == "Renovação"
+             else ["LP", "LI", "LO", "LIR", "LOR"]),
+            key="tipo_selecionado",
+            format_func=lambda k: ROTULOS_TIPO[k])
+
+    st.markdown(
+        "### 2️⃣ Envie a documentação do processo\n"
         "**Formatos aceitos:** formulário `.htm`/`.html`, `.pdf`, "
         "Word (`.docx`), Excel (`.xlsx`), `.txt`/`.csv`.")
 
     arquivos = st.file_uploader(
         "Documentos do processo (formulário + anexos)",
         type=FORMATOS_UPLOAD, accept_multiple_files=True,
-        help="Dica: inclua o formulário do requerimento (.htm/.html) e todos os "
-             "documentos exigidos para a licença pleiteada (matrícula, ART, laudos, "
-             "PGRS, alvarás, etc.).")
+        help="Inclua o formulário do requerimento (.htm/.html) e todos os "
+             "documentos exigidos para a licença selecionada (matrícula, ART, "
+             "laudos, PGRS, alvarás, etc.).")
 
     if arquivos:
         st.markdown(f"**{len(arquivos)} arquivo(s) carregado(s):**")
@@ -279,11 +283,12 @@ def pagina_upload() -> None:
                        f"manual com preview na etapa de análise.")
 
     if st.button("🔍 Analisar documentação", type="primary",
-                 disabled=not arquivos,
-                 help="Executa a triagem, a conferência do checklist, a auditoria "
-                      "técnica pelos TRs e monta o quadro resumo."):
+                 disabled=(not arquivos or not tipo),
+                 help="Executa a triagem, a conferência do checklist pela "
+                      "licença selecionada, a auditoria técnica pelos TRs e "
+                      "monta o quadro resumo."):
         with st.spinner("Analisando a documentação (Fases 1 a 3)..."):
-            executar_analise(arquivos)
+            executar_analise(arquivos, tipo, natureza)
         st.rerun()
 
     if st.session_state.get("erro_formulario"):
@@ -322,53 +327,31 @@ def pagina_analise() -> None:
     # Licença pleiteada = tipo MARCADO no formulário (seção MOTIVO DO
     # ENCAMINHAMENTO À SEMA), com a origem da leitura indicada
     c2.metric("Licença pleiteada", pleito.get("tipo_licenca") or "—")
-    if pleito.get("metodo_deteccao"):
-        origem_leitura = f"via {pleito['metodo_deteccao']}"
+    metodo_leitura = pleito.get("metodo_deteccao") or ""
+    if metodo_leitura:
+        origem_leitura = ("seleção sua na Etapa 1" if metodo_leitura
+                          == "selecionado pelo licenciador na Etapa 1"
+                          else f"via {metodo_leitura}")
         if pleito.get("natureza"):
             origem_leitura += f" • {pleito['natureza']}"
         c2.caption(origem_leitura)
     c3.metric("Triagem", (dados.get("status_triagem") or "—").replace("_", " ").upper())
-    # DIAGNÓSTICO: tipo não lido -> mostra o que o sistema enxergou no item 3
-    if not pleito.get("tipo_licenca"):
+    # Diagnóstico do item 3: mostrado quando a marcação não foi lida OU
+    # divergiu da seleção do licenciador (transparência, sem travar o fluxo)
+    if not pleito.get("tipo_licenca") or pleito.get("divergencia_selecao"):
         brutas = pleito.get("leitura_bruta_secao") or []
-        with st.expander("🔍 Não consegui ler a MARCAÇÃO do item 3 "
-                         "(MOTIVO DO ENCAMINHAMENTO) - ver o que o sistema leu",
-                         expanded=True):
-            st.warning("O tipo de licença fica '—' e a taxa não é calculada "
-                       "enquanto a marcação não for lida.")
+        with st.expander("🔍 Leitura da marcação do item 3 "
+                         "(MOTIVO DO ENCAMINHAMENTO) no formulário",
+                         expanded=bool(pleito.get("divergencia_selecao"))):
+            if pleito.get("divergencia_selecao"):
+                st.warning("⚖️ " + pleito["divergencia_selecao"])
             if brutas:
                 st.caption("Linhas lidas na seção (os símbolos de marcação "
                            "podem não ter sobrevivido à conversão p/ HTML):")
                 st.code("\n".join(brutas) or "(seção vazia)", language=None)
             for av in (dados.get("avisos_parser") or []):
-                if "MARCADA" in av or "tipo de licença" in av:
+                if "MARCADA" in av or "DIVERGÊNCIA" in av:
                     st.caption("• " + av)
-            # ---- OUTRO MEIO: o licenciador confirma o tipo e o sistema
-            # recalcula listagem, taxas e auditoria com o tipo confirmado ----
-            st.markdown("---")
-            st.markdown(
-                "**Confirme você o tipo pleiteado** (lê a marcação que o "
-                "sistema não conseguiu): o quadro, as taxas e o parecer são "
-                "recalculados na hora.")
-            rotulos = {"LP": "Licença Prévia (LP)",
-                       "LI": "Licença de Instalação (LI)",
-                       "LO": "Licença de Operação (LO)",
-                       "LIR": "Licença de Instalação e Regularização (LIR)",
-                       "LOR": "Licença de Operação e Regularização (LOR)",
-                       "LICENCA_UNICA": "Licença Única"}
-            col_a, col_b = st.columns(2)
-            tipo_manual = col_a.radio("Tipo de licença", list(rotulos),
-                                      format_func=lambda k: rotulos[k])
-            natureza_manual = col_b.radio(
-                "Natureza do pleito",
-                ["Não informar", "Primeira licença", "Renovação"], index=0)
-            if st.button("✔ Confirmar e recalcular", type="primary"):
-                st.session_state.pleito_manual = {
-                    "tipo": tipo_manual,
-                    "natureza": (natureza_manual
-                                 if natureza_manual != "Não informar" else None)}
-                recalcular_pleito_manual()
-                st.rerun()
     c4.metric("Taxa (URMs)", _fmt_urm(financeiro.get("total_urm")))
     if financeiro.get("erro"):
         c4.caption(f"⚠️ {str(financeiro['erro'])[:60]}")

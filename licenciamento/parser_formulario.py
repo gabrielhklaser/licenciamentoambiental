@@ -128,7 +128,8 @@ class FormularioParser:
                       "AREA TOTAL (M2)", "SUPERFICIE TOTAL"],
         "area_util": ["AREA UTIL/DE INTERVENCAO", "AREA UTIL", "AREA DE INTERVENCAO",
                       "AREA UTIL DO EMPREENDIMENTO", "AREA DE INTERVENCAO (HA)",
-                      "AREA TOTAL DE INTERVENCAO", "AREA DA INTERVENCAO"],
+                      "AREA TOTAL DE INTERVENCAO", "AREA DA INTERVENCAO",
+                      "AREA UTIL TOTAL"],
         "matricula_imovel": ["MATRICULA DO IMOVEL", "MATRICULA IMOVEL", "N. DA MATRICULA",
                              "MATRICULA (CARTORIO DE REGISTRO DE IMOVEIS)", "MATRICULA GERAL"],
         "endereco_empreendimento": ["ENDERECO DO EMPREENDIMENTO", "LOCALIZACAO DO EMPREENDIMENTO",
@@ -1493,6 +1494,49 @@ class FormularioParser:
                 logger.info("JSON consolidado gravado em %s", caminho_saida)
             except Exception as exc:  # noqa: BLE001
                 self._registrar_falha("gerar_json", f"falha ao gravar arquivo: {exc}")
+        return self.dados
+
+    def aplicar_pleito_manual(self, tipo_licenca: str,
+                              natureza: Optional[str] = None) -> dict[str, Any]:
+        """Aplica o pleito SELECIONADO pelo licenciador na Etapa 1 (fonte da
+        verdade do tipo) e RE-MONTA a listagem de documentos exigidos para as
+        fases desse tipo (LIR=LP+LI; LOR=LP+LI+LO; demais: a própria fase).
+
+        Se a marcação lida no formulário indicar outro tipo, a divergência é
+        registrada em pleito['divergencia_selecao'] e em avisos_parser (nunca
+        resolvida em silêncio).
+        """
+        try:
+            if not self.dados:
+                self.parse()
+            tipo = (tipo_licenca or "").strip().upper()
+            if tipo not in self.FASES_COMPONENTES:
+                self._registrar_falha(
+                    "aplicar_pleito_manual",
+                    f"tipo de licença inválido para seleção manual: {tipo!r}")
+                return self.dados
+            pleito = self.dados.setdefault("pleito", {})
+            # preserva o tipo ORIGINALMENTE lido do formulário (1ª aplicação)
+            if "tipo_lido_do_formulario" not in pleito:
+                pleito["tipo_lido_do_formulario"] = pleito.get("tipo_licenca")
+            tipo_lido = pleito.get("tipo_lido_do_formulario")
+            pleito["tipo_licenca"] = tipo
+            pleito["fases_componentes"] = list(self.FASES_COMPONENTES[tipo])
+            pleito["metodo_deteccao"] = "selecionado pelo licenciador na Etapa 1"
+            if natureza:
+                pleito["natureza"] = natureza
+            if tipo_lido and tipo_lido != tipo:
+                msg = (f"DIVERGÊNCIA: a marcação do formulário indicava "
+                       f"{tipo_lido}, mas a seleção do licenciador na Etapa 1 "
+                       f"prevalece ({tipo}). Conferir a marcação do item 3.")
+                pleito["divergencia_selecao"] = msg
+                self._registrar_falha("aplicar_pleito_manual", msg)
+            else:
+                pleito.pop("divergencia_selecao", None)
+            self.dados["documentos_exigidos"] = self.extrair_documentos_exigidos(
+                tipo_licenca=tipo)
+        except Exception as exc:  # noqa: BLE001
+            self._registrar_falha("aplicar_pleito_manual", str(exc))
         return self.dados
 
 
