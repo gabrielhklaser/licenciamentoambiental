@@ -363,11 +363,17 @@ def executar_analise(arquivos: list, tipo_selecionado: str,
     rt_principal = dados.get("responsavel_tecnico") or {}
     if rt_principal.get("registro_art"):
         arts_formulario.append({"numero": rt_principal.get("registro_art"),
-                                "nome": rt_principal.get("nome")})
+                                "nome": rt_principal.get("nome"),
+                                "secao": "8"})
     for prof in dados.get("responsaveis_etapas") or []:
         if prof.get("art_rtt"):
             arts_formulario.append({"numero": prof.get("art_rtt"),
-                                    "nome": prof.get("nome")})
+                                    "nome": prof.get("nome"),
+                                    "secao": "4.3"})
+    # áreas declaradas no formulário (conferência de projetos urbanísticos)
+    _emp = dados.get("empreendimento") or {}
+    areas_formulario = {"area_total_ha": _emp.get("area_total_ha"),
+                        "area_util_ha": _emp.get("area_util_ha")}
     for arq in documentos:
         texto = validador.extrair_texto(arq.name, arq.getvalue())
         textos_anexos[arq.name] = texto
@@ -378,7 +384,9 @@ def executar_analise(arquivos: list, tipo_selecionado: str,
         if len(texto.strip()) >= 40:
             # DUPLA CHECAGEM sempre: 2ª execução + conferência título x TR
             resultados_tecnicos.extend(auditor.auditar_com_dupla_checagem(
-                arq.name, texto, arts_formulario=arts_formulario or None))
+                arq.name, texto,
+                arts_formulario=arts_formulario or None,
+                areas_formulario=areas_formulario or None))
 
     # o formulário também participa do casamento do quadro
     for form in formularios:

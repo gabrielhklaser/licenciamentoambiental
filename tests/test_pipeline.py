@@ -1611,3 +1611,99 @@ def test_trs_dupla_checagem_roteamento_divergente_e_instavel():
                    "trimestrais supressão de vegetação")
     assert any("DIVERGENTES" in i for r in res2
                for i in r.itens_reprovados)
+
+
+# ==============================================================================
+# CORREÇÕES do licenciador: ART (nome nos 1os dados + atividade), projeto
+# urbanístico (profissional + áreas), CNPJ 'Número de Inscrição', sem msg de TR
+# ==============================================================================
+def test_art_nome_nos_primeiros_dados_e_atividade_licenciamento():
+    """O nome do profissional SEMPRE está nos primeiros dados da ART: cruza os
+    tokens do formulário com o texto do documento (como faz com o número). A
+    descrição da atividade contendo 'licenciamento ambiental' atribui a
+    responsabilidade técnica ao RT da seção 8 do formulário."""
+    from licenciamento.auditor_tecnico import AuditorTecnico
+    auditor = AuditorTecnico()
+    art = ("ART - Anotação de Responsabilidade Técnica\\nNº da ART: 202613404\\n"
+           "Keli Daiane Bernardes dos Santos\\nCREA/CRBio 110544/03-D\\n"
+           "Descrição sumária da atividade: LICENCIAMENTO AMBIENTAL do "
+           "empreendimento.\\n")
+    res = auditor.auditar_com_dupla_checagem(
+        "Art*228_assinado.pdf", art,
+        arts_formulario=[{"numero": "202613404",
+                          "nome": "Keli Daiane Bernardes dos Santos",
+                          "secao": "8"}])
+    r = [x for x in res if "ART" in x.norma_tr][0]
+    assert r.status.value == "CONFORME", r.itens_reprovados
+    assert "RESPONSABILIDADE TÉCNICA" in (r.metricas or {}).get("papel", "")
+    assert "licenciamento ambiental" in (r.trecho_referencia or "").lower()
+    # sem a atividade de licenciamento: ART da seção 8 fica para verificar
+    art2 = art.replace("LICENCIAMENTO AMBIENTAL do "
+                       "empreendimento.", "laudo de fauna silvestre.")
+    r2 = [x for x in auditor.auditar_com_dupla_checagem(
+        "art2.pdf", art2,
+        arts_formulario=[{"numero": "202613404",
+                          "nome": "Keli Daiane Bernardes dos Santos",
+                          "secao": "8"}]) if "ART" in x.norma_tr][0]
+    assert r2.status.value == "REVISAO_MANUAL"
+    assert any("licenciamento" in i.lower() for i in r2.itens_reprovados)
+
+
+def test_projeto_urbanistico_profissional_e_areas_vs_formulario():
+    """Projetos urbanísticos com plantas: dupla checagem SEMPRE - profissional
+    que assina bate com o formulário E área total/útil bate com os valores do
+    formulário (m² convertido para ha); divergência é citada ponto a ponto."""
+    from licenciamento.auditor_tecnico import AuditorTecnico
+    auditor = AuditorTecnico()
+    arts = [{"numero": "202613404",
+             "nome": "Keli Daiane Bernardes dos Santos", "secao": "8"}]
+    areas = {"area_total_ha": 1.25, "area_util_ha": 0.3245}
+    proj = ("PROJETO URBANÍSTICO - plantas de situação e quadro de áreas\\n"
+            "Responsável técnico: Keli Daiane Bernardes dos Santos - "
+            "ART 202613404\\nÁrea total: 12.500,00 m²\\n"
+            "Área útil: 3.245,49 m²\\n")
+    r = [x for x in auditor.auditar_com_dupla_checagem(
+        "projeto.pdf", proj, arts_formulario=arts,
+        areas_formulario=areas) if "urbanístico" in x.norma_tr][0]
+    assert r.status.value == "CONFORME", r.itens_reprovados
+    # área divergente (13.000 m² != 12.500 m²): citada com os dois valores
+    proj_err = proj.replace("12.500,00", "13.000,00")
+    r2 = [x for x in auditor.auditar_com_dupla_checagem(
+        "projeto2.pdf", proj_err, arts_formulario=arts,
+        areas_formulario=areas) if "urbanístico" in x.norma_tr][0]
+    assert r2.status.value == "PENDENTE"
+    assert any("DIVERGE do formulário" in i and "1.3000" in i.replace(",", ".")
+               for i in r2.itens_reprovados), r2.itens_reprovados
+
+
+def test_sem_mensagem_tr_nao_reconhecido_e_cnpj_rotulo():
+    """(1) Documentos que não são laudos NÃO geram 'Nenhum Termo de Referência
+    reconhecido' (o usuário não envia TR). (2) CNPJ da matrícula sob o rótulo
+    'Número de Inscrição' no formato xx.xxx.xxx/xxxx-xx é reconhecido."""
+    from licenciamento.auditor_tecnico import AuditorTecnico
+    res = AuditorTecnico().auditar_com_dupla_checagem(
+        "matricula.pdf", "MATRÍCULA Nº 33024 do Cartório de Registro de "
+                         "Imóveis - Numero de Inscrição do CNPJ "
+                         "12.345.678/0001-95.")
+    assert res == [] or not any("Termo de Referência reconhecido" in i
+                                for r in res for i in r.itens_reprovados)
+    from licenciamento.agente_administrativo import AgenteAdministrativo
+    dados = {"empreendedor": {"cpf_cnpj": "12.345.678/0001-95"},
+             "documentos_exigidos": {"lista_deduplicada": [
+                 "Cópia da matrícula atualizada do imóvel"]}}
+    c = AgenteAdministrativo._conferir_cnpj_matricula(
+        dados, ["matricula.pdf"],
+        {"matricula.pdf": "Cartório\\nNúmero de Inscrição: 12.345.678/0001-95"
+                          "\\nCNPJ do proprietário acima"})
+    assert c["status"] == "CONFERE", c
+
+
+def test_agente_conformidade_verificacoes_conferencias():
+    """Os erros reportados pelo licenciador viraram verificações permanentes do
+    AGENTE DE CONFORMIDADE (CONF): ART/projeto/CNPJ funcionais + mensagem de TR
+    abolida - a bateria roda limpa no repositório."""
+    from licenciamento.auditor_sistema import AuditorSistema
+    auditor = AuditorSistema(com_testes=False)
+    erros = auditor.auditar()
+    conf = [e for e in erros if e.id.startswith("CONF-")]
+    assert not conf, [(e.id, e.descricao) for e in conf]

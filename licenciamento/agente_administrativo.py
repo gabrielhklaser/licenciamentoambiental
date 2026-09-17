@@ -114,9 +114,20 @@ class AgenteAdministrativo:
                         "cnpj_encontrado": None, "status": "ANEXO_NAO_LEGIVEL",
                         "detalhe": ("matrícula sem texto legível (escaneada e "
                                     "OCR indisponível) - conferir manualmente")}
+            # o CNPJ da matrícula vem sob o rótulo 'Número de Inscrição'
+            # (formatado xx.xxx.xxx/xxxx-xx); prioriza a janela do rótulo
+            priorizados: set[str] = set()
+            m_rot = re.search(r"numero\s+de\s+inscric[aã]o(.{0,120})", texto,
+                              re.I | re.S)
+            if m_rot:
+                priorizados = {re.sub(r"\D", "", m.group(0)) for m in
+                               cls.RE_CNPJ_TEXTO.finditer(m_rot.group(1))}
+                priorizados.discard("")
             encontrados = {re.sub(r"\D", "", m.group(0))
                            for m in cls.RE_CNPJ_TEXTO.finditer(texto)}
             encontrados.discard("")
+            if priorizados:
+                encontrados = priorizados | (encontrados & priorizados)
             if cnpj_form in encontrados:
                 status = "CONFERE"
             elif encontrados:

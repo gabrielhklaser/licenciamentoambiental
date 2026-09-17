@@ -110,6 +110,7 @@ class AuditorSistema:
             ("PAR", self.verificar_parser_fixtures),
             ("PLE", self.verificar_pleitos_e_taxas),
             ("AMB", self.verificar_ambiente),
+            ("CONF", self.verificar_conferencias_documentais),
             ("APP", self.verificar_integracao_app),
             ("HIG", self.verificar_higiene_arquivos),
         ]
@@ -526,6 +527,98 @@ class AuditorSistema:
                           "atrás do proxy do preview (AxiosError 403).",
                 evidencia=str(conteudo)[:200],
                 correcao="regravar config.toml canônico", corrigivel=True))
+        return erros
+
+    def verificar_conferencias_documentais(self) -> list[Erro]:
+        """CONFERÊNCIAS DOCUMENTAIS (lições dos erros reais do licenciador):
+        ART com o nome nos primeiros dados deve ser CONFORME (com atribuição
+        à responsabilidade pelo licenciamento quando a ART declara a
+        atividade); projeto urbanístico tem dupla checagem profissional+áreas;
+        CNPJ sob o rótulo 'Número de Inscrição' é reconhecido; a antiga
+        mensagem 'Nenhum Termo de Referência...' está ABOLIDA."""
+        erros: list[Erro] = []
+
+        # (a) mensagem abolida não pode voltar ao código
+        fonte_aud = (self.raiz / "licenciamento" / "auditor_tecnico.py")
+        if fonte_aud.exists() and ("Nenhum Termo de Refer"
+                                   "ência reconhecido" in fonte_aud.read_text(
+                                       encoding="utf-8")):
+            erros.append(Erro(
+                id="CONF-MSG-TR", severidade="media",
+                componente="licenciamento/auditor_tecnico.py",
+                descricao="Mensagem 'Nenhum Termo de Referência reconhecido' "
+                          "reintroduzida (usuário NÃO envia TR).",
+                evidencia="texto presente no fonte", correcao="manual"))
+
+        try:
+            from licenciamento.auditor_tecnico import AuditorTecnico
+            auditor = AuditorTecnico()
+            # (b) ART: nome nos primeiros dados + atividade licenciamento
+            art = ("ART Nº 202613404\nKeli Daiane Bernardes dos Santos\n"
+                   "CREA-RS 110544/03-D\nDescrição da atividade/sumária: "
+                   "LICENCIAMENTO AMBIENTAL do empreendimento.\n")
+            res = auditor.auditar_com_dupla_checagem(
+                "art_licenciamento.pdf", art,
+                arts_formulario=[{"numero": "202613404",
+                                  "nome": "Keli Daiane Bernardes dos Santos",
+                                  "secao": "8"}])
+            r = [x for x in res if "ART" in x.norma_tr]
+            if not r or r[0].status.value != "CONFORME" or \
+                    "RESPONSABILIDADE TÉCNICA" not in (r[0].metricas or {}) \
+                    .get("papel", ""):
+                erros.append(Erro(
+                    id="CONF-ART-NOME", severidade="media",
+                    componente="licenciamento/auditor_tecnico.py",
+                    descricao="Conferência de ART falhou com o nome nos "
+                              "primeiros dados do documento (deve ser CONFORME "
+                              "e atribuir a responsabilidade técnica).",
+                    evidencia=str([(x.norma_tr, x.status.value,
+                                    x.itens_reprovados) for x in res])[:400],
+                    correcao="manual"))
+            # (c) projeto urbanístico: áreas + profissional
+            proj = ("PROJETO URBANÍSTICO com plantas\nResponsável técnico: "
+                    "Keli Daiane Bernardes dos Santos - ART 202613404\n"
+                    "Área total: 32.450,00 m²\nÁrea útil: 32.450,00 m²\n")
+            res_p = auditor.auditar_com_dupla_checagem(
+                "projeto.pdf", proj,
+                arts_formulario=[{"numero": "202613404",
+                                  "nome": "Keli Daiane Bernardes dos Santos",
+                                  "secao": "8"}],
+                areas_formulario={"area_total_ha": 3.245,
+                                  "area_util_ha": 3.245})
+            rp = [x for x in res_p if "urbanístico" in x.norma_tr]
+            if not rp or rp[0].status.value != "CONFORME":
+                erros.append(Erro(
+                    id="CONF-PROJETO-URB", severidade="media",
+                    componente="licenciamento/auditor_tecnico.py",
+                    descricao="Dupla checagem de projeto urbanístico "
+                              "(profissional + áreas) falhou no caso correto.",
+                    evidencia=str([(x.norma_tr, x.status.value,
+                                    x.itens_reprovados)
+                                   for x in res_p])[:400], correcao="manual"))
+            # (d) CNPJ sob o rótulo 'Número de Inscrição' (formatado)
+            from licenciamento.agente_administrativo import AgenteAdministrativo
+            dados = {"empreendedor": {"cpf_cnpj": "12.345.678/0001-95"},
+                     "documentos_exigidos": {"lista_deduplicada": [
+                         "Cópia da matrícula atualizada do imóvel"]}}
+            c = AgenteAdministrativo._conferir_cnpj_matricula(
+                dados, ["matricula.pdf"],
+                {"matricula.pdf": "Matrícula 33024 - Numero de Inscrição: "
+                                  "12.345.678/0001-95 CNPJ da empresa"})
+            if not c or c.get("status") != "CONFERE":
+                erros.append(Erro(
+                    id="CONF-CNPJ-ROTULO", severidade="media",
+                    componente="licenciamento/agente_administrativo.py",
+                    descricao="CNPJ sob o rótulo 'Número de Inscrição' "
+                              "(xx.xxx.xxx/xxxx-xx) não reconhecido na "
+                              "matrícula.",
+                    evidencia=str(c)[:300], correcao="manual"))
+        except Exception as exc:  # noqa: BLE001
+            erros.append(Erro(id="CONF-FUNC", severidade="media",
+                              componente="licenciamento/auditor_tecnico.py",
+                              descricao="Falha ao executar as conferências "
+                                        "funcionais de ART/projeto/CNPJ.",
+                              evidencia=str(exc)[:300], correcao="manual"))
         return erros
 
     def verificar_higiene_arquivos(self) -> list[Erro]:

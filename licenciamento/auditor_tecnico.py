@@ -1025,14 +1025,22 @@ class AuditorTecnico:
 
     def _conferir_art_com_formulario(
             self, nome_documento: str, art_doc: dict,
-            arts_formulario: Optional[list[dict]]) -> ResultadoValidacao:
+            arts_formulario: Optional[list[dict]],
+            texto: str = "") -> ResultadoValidacao:
         """Conferência da ART/RTT do DOCUMENTO com as declaradas no formulário
-        HTML (responsável técnico principal + seção 4.3)."""
+        HTML. Dupla blindagem:
+          - NÚMERO: dígitos da ART declarada presentes no documento;
+          - NOME: o nome do profissional SEMPRE consta nos primeiros dados da
+            ART - os tokens do nome declarado são procurados no TEXTO do
+            documento (mesmo com OCR imperfeito), além do nome extraído;
+          - ATIVIDADE: 'licenciamento ambiental' na descrição sumária marca a
+            ART atribuída à responsabilidade técnica pelo licenciamento, que
+            deve pertencer ao RT da seção 8 do formulário."""
         norma = "Conferência ART/RTT × formulário HTML"
         numero_doc, nome_doc = art_doc.get("numero"), art_doc.get("nome")
+        t_doc = ProvedorLLMHeuristico._norm(texto or "")
         metricas = {"art_documento": numero_doc, "nome_documento": nome_doc,
                     "arts_declaradas": arts_formulario or []}
-        trecho = ""
         if not arts_formulario:
             return ResultadoValidacao(
                 documento_analisado=nome_documento, norma_tr=norma,
@@ -1043,24 +1051,69 @@ class AuditorTecnico:
                                   "conferência número/nome."],
                 metricas=metricas, origem=OrigemAnalise.DETERMINISTICO)
 
-        def _tokens(nome: str) -> set[str]:
-            return {x for x in ProvedorLLMHeuristico._norm(nome or "").split()
-                    if len(x) >= 4}
+        def _tokens(nome: str) -> list[str]:
+            return [x for x in ProvedorLLMHeuristico._norm(nome or "").split()
+                    if len(x) >= 4]
+
+        atividade_lic = "licenciamento ambiental" in t_doc
+        metricas["atividade_licenciamento_ambiental_na_art"] = atividade_lic
+        trecho_ativ = ""
+        if atividade_lic:
+            idx = t_doc.find("licenciamento ambiental")
+            trecho_ativ = re.sub(r"\s+", " ", (texto or "")[max(0, idx - 80):
+                                                            idx + 60]).strip()
 
         for declarada in arts_formulario:
             num_decl = re.sub(r"\D", "", declarada.get("numero") or "")
             bate_num = bool(numero_doc and num_decl
                             and numero_doc == num_decl)
             nome_decl = declarada.get("nome") or ""
-            comuns = (_tokens(nome_doc) & _tokens(nome_decl)) if nome_doc else set()
-            bate_nome = len(comuns) >= min(2, max(1, len(_tokens(nome_decl))))
+            tokens_decl = _tokens(nome_decl)[:3]
+            no_doc = bool(tokens_decl) and sum(
+                1 for tk in tokens_decl if tk in t_doc) >= max(
+                1, min(2, len(tokens_decl)))
+            no_extraido = bool(nome_doc and set(_tokens(nome_decl)[:3])
+                               & set(_tokens(nome_doc)))
+            bate_nome = no_doc or no_extraido
             if bate_num:
+                metricas["nome_localizado_no_documento"] = bool(no_doc)
                 if bate_nome:
+                    atribuida = (atividade_lic
+                                 and declarada.get("secao") == "8")
+                    if atribuida:
+                        return ResultadoValidacao(
+                            documento_analisado=nome_documento, norma_tr=norma,
+                            status=StatusValidacao.CONFORME, itens_reprovados=[],
+                            trecho_referencia=(trecho_ativ
+                                               or f"ART nº {numero_doc}"),
+                            metricas={**metricas, "papel": (
+                                "ART ATRIBUÍDA À RESPONSABILIDADE TÉCNICA "
+                                "pelo LICENCIAMENTO AMBIENTAL (atividade "
+                                "declarada na ART); profissional confere com "
+                                "a seção 8 (RESPONSÁVEL PELO LICENCIAMENTO "
+                                "AMBIENTAL) do formulário")},
+                            origem=OrigemAnalise.DETERMINISTICO)
+                    aviso = []
+                    if declarada.get("secao") == "8" and not atividade_lic:
+                        aviso = [
+                            "ART do responsável pelo licenciamento (seção 8) "
+                            "NÃO menciona 'licenciamento ambiental' na "
+                            "descrição da atividade - conferir se esta é a "
+                            "ART da responsabilidade técnica pelo "
+                            "licenciamento."]
+                    elif atividade_lic and declarada.get("secao") != "8":
+                        aviso = [
+                            "ART confere (nº e nome) e menciona 'licenciamento "
+                            "ambiental', mas pertence a outra etapa (seção "
+                            "4.3) - a ART do licenciamento deve ser a do RT da "
+                            "seção 8 do formulário."]
                     return ResultadoValidacao(
                         documento_analisado=nome_documento, norma_tr=norma,
-                        status=StatusValidacao.CONFORME, itens_reprovados=[],
-                        trecho_referencia=(f"ART nº {numero_doc} - "
-                                           f"{nome_doc or nome_decl}"),
+                        status=(StatusValidacao.REVISAO_MANUAL if aviso
+                                else StatusValidacao.CONFORME),
+                        itens_reprovados=aviso,
+                        trecho_referencia=f"ART nº {numero_doc} - "
+                                          f"{nome_decl}",
                         metricas=metricas,
                         origem=OrigemAnalise.DETERMINISTICO)
                 return ResultadoValidacao(
@@ -1068,8 +1121,8 @@ class AuditorTecnico:
                     status=StatusValidacao.REVISAO_MANUAL,
                     itens_reprovados=[
                         f"ART nº {numero_doc} confere com o formulário, mas o "
-                        "NOME do profissional não pôde ser conferido no "
-                        "documento (verificar)."],
+                        "NOME do profissional não foi localizado no documento "
+                        "(conferir os dados iniciais da ART)."],
                     metricas=metricas, origem=OrigemAnalise.DETERMINISTICO)
         declaradas_txt = ", ".join(
             f"{d.get('numero') or '?'} ({d.get('nome') or 'sem nome'})"
@@ -1082,6 +1135,120 @@ class AuditorTecnico:
                 f"confere com as declaradas no formulário HTML "
                 f"({declaradas_txt}) - pode ser ART de outra etapa; conferir."],
             metricas=metricas, origem=OrigemAnalise.DETERMINISTICO)
+
+    # ------------------------------------------------------------------
+    # PROJETOS URBANÍSTICOS/ARQUITETÔNICOS (plantas): profissional + áreas
+    # ------------------------------------------------------------------
+    RE_AREA_DOC = re.compile(
+        r"[aáAÁ]rea\s*(total|util|de\s+intervenc[aã]o|construida|do\s+lote|"
+        r"do\s+terreno)?[^\d\n]{0,30}"
+        r"(\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:,\d+)?)\s*"
+        r"(m2|m²|ha|hectare[s]?|metros?\s*quadrados?)", re.I)
+
+    @classmethod
+    def _num_pt(cls, bruto: str) -> Optional[float]:
+        """Converte número no padrão brasileiro ('12.500,00' -> 12500.0)."""
+        try:
+            return float(bruto.strip().replace(".", "").replace(",", "."))
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def _extrair_areas_doc(cls, texto: str) -> list[dict]:
+        """Áreas declaradas no documento: [{'rotulo', 'valor', 'ha'}]."""
+        saida: list[dict] = []
+        for m in cls.RE_AREA_DOC.finditer(texto or ""):
+            rotulo = re.sub(r"\s+", " ", (m.group(1) or "informada").lower())
+            valor = cls._num_pt(m.group(2))
+            unidade = (m.group(3) or "").lower()
+            if valor is None:
+                continue
+            ha = (valor / 10000.0
+                  if ("m2" in unidade or "m²" in unidade
+                      or "quadrado" in unidade) else valor)
+            saida.append({"rotulo": rotulo, "valor": valor,
+                          "ha": round(ha, 6)})
+        return saida
+
+    @classmethod
+    def _eh_projeto_urbanistico(cls, texto: str) -> bool:
+        cabecalho = ProvedorLLMHeuristico._norm(texto or "")[:350]
+        return any(k in cabecalho for k in (
+            "projeto urbanistico", "projeto arquitetonico",
+            "planta de situacao", "projeto de implantacao"))
+
+    def conferir_projeto_urbanistico(
+            self, nome_documento: str, texto: str,
+            arts_formulario: Optional[list[dict]],
+            areas_formulario: Optional[dict]) -> ResultadoValidacao:
+        """Dupla checagem de projetos urbanísticos com plantas: o PROFISSIONAL
+        que assina (nome/ART) bate com o formulário E as ÁREAS (total/útil)
+        batem com os valores do formulário - ponto a ponto."""
+        norma = ("Conferência projeto urbanístico × formulário "
+                 "(profissional + áreas)")
+        t_doc = ProvedorLLMHeuristico._norm(texto or "")
+        areas_doc = self._extrair_areas_doc(texto or "")
+        reprov: list[str] = []
+
+        # ---- profissional que assina ----
+        profissional_ok, prof_info = None, None
+        m_art = self.RE_NUM_ART_DOC.search(texto or "")
+        num_doc = re.sub(r"\D", "", m_art.group(1)) if m_art else None
+        for declarada in (arts_formulario or []):
+            tokens = [x for x in ProvedorLLMHeuristico._norm(
+                declarada.get("nome") or "").split() if len(x) >= 4][:3]
+            bate_nome = bool(tokens) and sum(
+                1 for tk in tokens if tk in t_doc) >= max(
+                1, min(2, len(tokens)))
+            num_decl = re.sub(r"\D", "", declarada.get("numero") or "")
+            bate_num = bool(num_doc and num_decl and num_doc == num_decl)
+            if bate_nome or bate_num:
+                profissional_ok = True
+                prof_info = (f"{declarada.get('nome') or '?'}"
+                             + (f" (ART nº {num_decl})" if bate_num else ""))
+                break
+        if not profissional_ok:
+            reprov.append(
+                "Profissional que assina o projeto NÃO confere com o "
+                "formulário HTML (nome/ART não localizados entre os "
+                "responsáveis declarados).")
+
+        # ---- áreas x formulário ----
+        areas_checadas = 0
+        for area in areas_doc:
+            alvo_chave = ("area_total_ha" if "total" in area["rotulo"]
+                          else "area_util_ha"
+                          if ("util" in area["rotulo"]
+                              or "intervenc" in area["rotulo"]) else None)
+            if not alvo_chave:
+                continue
+            alvo = (areas_formulario or {}).get(alvo_chave)
+            if alvo is None:
+                continue
+            areas_checadas += 1
+            tolerancia = max(0.02 * alvo, 0.005)
+            if abs(area["ha"] - alvo) > tolerancia:
+                reprov.append(
+                    f"Área {area['rotulo']} do projeto ({area['valor']}"
+                    f" = {area['ha']:.4f} ha) DIVERGE do formulário "
+                    f"({alvo:.4f} ha) - conferir.")
+        if not areas_doc:
+            reprov.append("Nenhuma ÁREA legível no projeto (total/útil) para "
+                          "a conferência com o formulário - conferir "
+                          "manualmente.")
+        metricas = {"areas_documento": areas_doc,
+                    "areas_formulario": areas_formulario or {},
+                    "profissional": prof_info,
+                    "art_no_documento": num_doc}
+        return ResultadoValidacao(
+            documento_analisado=nome_documento, norma_tr=norma,
+            status=(StatusValidacao.CONFORME if not reprov and profissional_ok
+                    else StatusValidacao.PENDENTE),
+            itens_reprovados=reprov, metricas=metricas,
+            trecho_referencia=(f"Profissional: {prof_info}" if prof_info
+                               else None),
+            origem=OrigemAnalise.DETERMINISTICO)
+
 
     # o que cada tipo de laudo DECLARA SER no título -> TR que DEVE aplicar
     TR_ESPERADO_PELO_TITULO = [
@@ -1105,15 +1272,18 @@ class AuditorTecnico:
         return None
 
     def auditar_com_dupla_checagem(self, nome_documento: str, texto: str,
-                                   arts_formulario: Optional[list[dict]] = None
+                                   arts_formulario: Optional[list[dict]] = None,
+                                   areas_formulario: Optional[dict] = None
                                    ) -> list[ResultadoValidacao]:
         """AUDITORIA TÉCNICA COM DUPLA CHECAGEM (sempre nesta fase):
         1ª e 2ª EXECUÇÃO - cada TR é revalidado; resultados divergentes
         viram REVISAO_MANUAL explícita;
         ROTEAMENTO - o que o documento DECLARA SER no título deve ter o TR
         correspondente aplicado; se não, sinaliza (nunca silencia)."""
-        pass_1 = self.auditar_documento(nome_documento, texto, arts_formulario)
-        pass_2 = self.auditar_documento(nome_documento, texto, arts_formulario)
+        pass_1 = self.auditar_documento(nome_documento, texto, arts_formulario,
+                                        areas_formulario)
+        pass_2 = self.auditar_documento(nome_documento, texto, arts_formulario,
+                                        areas_formulario)
 
         def chave(res: ResultadoValidacao):
             return (res.norma_tr, res.status.value,
@@ -1164,7 +1334,8 @@ class AuditorTecnico:
         return pass_1
 
     def auditar_documento(self, nome_documento: str, texto: str,
-                          arts_formulario: Optional[list[dict]] = None
+                          arts_formulario: Optional[list[dict]] = None,
+                          areas_formulario: Optional[dict] = None
                           ) -> list[ResultadoValidacao]:
         """Aplica os TRs aplicáveis ao laudo e devolve os resultados.
 
@@ -1175,7 +1346,12 @@ class AuditorTecnico:
         art_doc = self.identificar_art_rtt(texto)
         if art_doc is not None:
             resultados.append(self._conferir_art_com_formulario(
-                nome_documento, art_doc, arts_formulario))
+                nome_documento, art_doc, arts_formulario, texto=texto))
+            return resultados
+        # PROJETOS URBANÍSTICOS com plantas: dupla checagem profissional + áreas
+        if self._eh_projeto_urbanistico(texto):
+            resultados.append(self.conferir_projeto_urbanistico(
+                nome_documento, texto, arts_formulario, areas_formulario))
             return resultados
         if len(texto.strip()) < 40:
             resultados.append(ResultadoValidacao(
@@ -1224,14 +1400,9 @@ class AuditorTecnico:
                     documento_analisado=nome_documento, norma_tr=tr,
                     status=StatusValidacao.REVISAO_MANUAL,
                     itens_reprovados=[f"Erro interno na validação do TR {tr}: {exc}"]))
-        if not resultados:
-            resultados.append(ResultadoValidacao(
-                documento_analisado=nome_documento,
-                norma_tr="Classificação de TR",
-                status=StatusValidacao.REVISAO_MANUAL,
-                itens_reprovados=["Nenhum Termo de Referência reconhecido no conteúdo do "
-                                  "documento - triagem manual."],
-                origem=OrigemAnalise.DETERMINISTICO))
+        # Documentos que não são laudos (matrícula, contrato social, CNPJ...)
+        # simplesmente não têm TR a aplicar: NENHUMA mensagem de erro aqui
+        # (o usuário não envia TR - o sistema confronta com os NOSSOS TRs).
         return resultados
 
     @staticmethod
