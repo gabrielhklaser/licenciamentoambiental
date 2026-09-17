@@ -40,61 +40,142 @@ from licenciamento.validador_documentos import (EXTENSOES_IMAGEM,
 RAIZ = Path(__file__).resolve().parent
 
 # ==============================================================================
-# TEMA (claro/escuro) - alternado pelo licenciador na barra lateral
+# SISTEMA VISUAL (skill frontend-design: FRAME -> SYSTEM -> COMPOSE -> MOTION)
+# Ideia-assinatura: "DOSSIÊ DE PROCESSO" - trilha de etapas no topo + fichas
+# com régua de status. TODA cor é token (variável CSS); 2 temas = 2 conjuntos.
 # ==============================================================================
-CSS_TEMA_ESCURO = """
+CSS_TOKENS = """
 <style>
 :root {
-  --background-color: #0f1216 !important;
-  --secondary-background-color: #171c23 !important;
-  --primary-color: #5cb860 !important;
-  --text-color: #e8eaed !important;
+  --c-bg: #f6f7f4;            /* fundo da página (neutro quente) */
+  --c-surface: #ffffff;       /* superfícies (fichas, cards) */
+  --c-surface-2: #eef1ea;     /* superfície secundária */
+  --c-border: #d9ded4;
+  --c-text: #1c2419;
+  --c-muted: #5c6657;
+  --c-brand: #2e7d32;         /* verde institucional SEMA */
+  --c-brand-dark: #1b5e20;
+  --c-brand-soft: #e4efe2;
+  --c-ok: #2e7d32; --c-warn: #b26a00; --c-bad: #b3261e; --c-neutral: #6b7280;
+  --r-lg: 14px; --r-sm: 8px;  /* só 2 raios */
+  --s-1: 8px; --s-2: 16px; --s-3: 24px;
+  --dur: 0.16s;               /* movimento único e curto */
+}
+/* Cabeçalho institucional (marca) */
+.sema-marca {
+  border-left: 6px solid var(--c-brand);
+  background: var(--c-surface);
+  border-radius: var(--r-sm);
+  padding: var(--s-2) var(--s-2);
+  margin-bottom: var(--s-2);
+}
+.sema-marca .titulo { font-size: 1.45rem; font-weight: 700;
+  color: var(--c-text); line-height: 1.25; }
+.sema-marca .subtitulo { font-size: .88rem; color: var(--c-muted);
+  margin-top: 2px; }
+/* TRILHA DE ETAPAS (assinatura visual) */
+.sema-trilha { display: flex; gap: 0; margin: var(--s-1) 0 var(--s-3); }
+.sema-trilha .etapa { flex: 1; display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; background: var(--c-surface);
+  border: 1px solid var(--c-border); border-left: none; }
+.sema-trilha .etapa:first-child { border-left: 1px solid var(--c-border);
+  border-radius: var(--r-sm) 0 0 var(--r-sm); }
+.sema-trilha .etapa:last-child { border-radius: 0 var(--r-sm) var(--r-sm) 0; }
+.sema-trilha .bola { width: 28px; height: 28px; min-width: 28px;
+  border-radius: 50%; display: flex; align-items: center; justify-content:
+  center; font-weight: 700; font-size: .9rem;
+  background: var(--c-surface-2); color: var(--c-muted);
+  border: 2px solid var(--c-border); transition: all var(--dur) ease; }
+.sema-trilha .rotulo { font-size: .86rem; color: var(--c-muted); }
+.sema-trilha .rotulo b { display: block; font-size: .95rem; }
+.sema-trilha .atual .bola { background: var(--c-brand);
+  border-color: var(--c-brand-dark); color: #fff; }
+.sema-trilha .atual { border-top: 3px solid var(--c-brand); }
+.sema-trilha .atual .rotulo { color: var(--c-text); }
+.sema-trilha .concluida .bola { background: var(--c-brand-soft);
+  border-color: var(--c-brand); color: var(--c-brand-dark); }
+/* Fichas de métrica com régua de status */
+[data-testid="stMetric"] { background: var(--c-surface);
+  border: 1px solid var(--c-border); border-top: 3px solid var(--c-brand);
+  border-radius: var(--r-sm); padding: 10px 14px;
+  transition: box-shadow var(--dur) ease; }
+[data-testid="stMetric"]:hover { box-shadow: 0 2px 10px rgba(28,36,25,.08); }
+[data-testid="stMetricLabel"] p { font-size: .80rem !important;
+  color: var(--c-muted) !important; }
+[data-testid="stMetricValue"] { font-size: 1.02rem !important;
+  color: var(--c-text) !important; }
+/* Superfícies gerais */
+[data-testid="stExpander"], details { background: var(--c-surface);
+  border: 1px solid var(--c-border) !important; border-radius: var(--r-sm); }
+[data-testid="stCaptionContainer"] p { color: var(--c-muted) !important; }
+[data-testid="stFileUploaderDropzone"] { background: var(--c-surface) !important;
+  border: 1.5px dashed var(--c-border) !important;
+  transition: border-color var(--dur) ease; }
+[data-testid="stFileUploaderDropzone"]:hover { border-color: var(--c-brand) !important; }
+hr { border-color: var(--c-border); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+"""
+CSS_TEMA_ESCURO = """
+<style>
+/* TEMA ESCURO = apenas troca de tokens (mesma estrutura visual) */
+:root {
+  --c-bg: #0f1216; --c-surface: #171c23; --c-surface-2: #1d242e;
+  --c-border: #2a313c; --c-text: #e8eaed; --c-muted: #aab2bd;
+  --c-brand: #5cb860; --c-brand-dark: #79cf7d; --c-brand-soft: #1f2b20;
+  --c-ok: #5cb860; --c-warn: #e0a340; --c-bad: #e57368; --c-neutral: #97a1ad;
 }
 [data-testid="stApp"], [data-testid="stAppViewContainer"],
-[data-testid="stAppViewContainer"] > .main {
-  background: #0f1216; color: #e8eaed;
-}
+[data-testid="stAppViewContainer"] > .main { background: var(--c-bg);
+  color: var(--c-text); }
 [data-testid="stHeader"] { background: rgba(15,18,22,0.2); }
-[data-testid="stSidebar"] { background: #141920; border-right: 1px solid #2a313c; }
-[data-testid="stSidebar"] * { color: #e8eaed; }
-h1, h2, h3, h4, h5, h6, p, li, strong, b, label, summary { color: #e8eaed; }
-[data-testid="stExpander"], details {
-  background: #171c23; border: 1px solid #2a313c !important; border-radius: 10px; }
-[data-testid="stExpanderDetails"] { background: #171c23; }
-[data-testid="stMetricContainer"], [data-testid="stMetric"] {
-  background: #171c23; border: 1px solid #2a313c; border-radius: 10px;
-  padding: 8px 12px; }
-[data-testid="stMetricValue"] { color: #e8eaed !important; }
-[data-testid="stMetricLabel"] p { color: #aab2bd !important; }
-[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p {
-  color: #aab2bd !important; }
-[data-testid="stAlert"] {
-  background-color: #1d242e !important; color: #e8eaed !important;
-  border: 1px solid #2a313c !important; }
-[data-testid="stFileUploaderDropzone"] {
-  background: #171c23 !important; border: 1px dashed #3a4350 !important; }
-[data-testid="stFileUploaderDropzone"] * { color: #aab2bd !important; }
+[data-testid="stSidebar"] { background: #141920;
+  border-right: 1px solid var(--c-border); }
+[data-testid="stSidebar"] * { color: var(--c-text); }
+h1, h2, h3, h4, h5, h6, p, li, strong, b, label, summary { color: var(--c-text); }
+[data-testid="stAlert"] { background-color: var(--c-surface-2) !important;
+  color: var(--c-text) !important; border: 1px solid var(--c-border) !important; }
 [data-testid="stTextInput"] input, [data-testid="stTextArea"] textarea {
-  background: #171c23 !important; color: #e8eaed !important;
-  border: 1px solid #2a313c !important; }
-[data-testid="stRadio"] label, [data-testid="stCheckbox"] label { color: #e8eaed !important; }
-[data-testid="stDataFrame"] { border: 1px solid #2a313c; border-radius: 8px; }
-[data-testid="stJson"] { background: #171c23 !important; }
-[data-testid="stVerticalBlockBorderContainer"] { border-color: #2a313c !important; }
-hr { border-color: #2a313c; }
+  background: var(--c-surface) !important; color: var(--c-text) !important;
+  border: 1px solid var(--c-border) !important; }
+[data-testid="stJson"] { background: var(--c-surface) !important; }
 [data-testid="stMarkdownContainer"] a { color: #7fc4ff; }
 </style>
 """
 
 
 def aplicar_tema(escuro: bool) -> None:
-    """Injeta o CSS do tema escolhido. Em modo CLARO injeta um bloco vazio
-    para manter um único bloco de tema no DOM (sem CSS residual do escuro)."""
+    """Injeta o SISTEMA de tokens (sempre) + o override do tema escolhido."""
+    st.markdown(CSS_TOKENS, unsafe_allow_html=True)
     if escuro:
         st.markdown(CSS_TEMA_ESCURO, unsafe_allow_html=True)
-    else:
-        st.markdown("<style>/* tema claro (padrão) */</style>",
-                    unsafe_allow_html=True)
+
+
+def cabecalho_institucional(subtitulo: str) -> None:
+    """Marca da aplicação (SYSTEM/COMPOSE): faixa verde institucional."""
+    st.markdown(
+        '<div class="sema-marca"><div class="titulo">'
+        '🌿 Sistema de Verificação do Licenciamento Ambiental</div>'
+        f'<div class="subtitulo">{subtitulo}</div></div>',
+        unsafe_allow_html=True)
+
+
+def trilha_etapas(atual: int) -> None:
+    """TRILHA DE ETAPAS (elemento-assinatura da interface): mostra onde o
+    licenciador está no fluxo e o que vem a seguir."""
+    etapas = [("1", "Declarar e enviar", "Licença + documentos do processo"),
+              ("2", "Avaliar o dossiê", "Checklist, taxas e parecer")]
+    pedacos = []
+    for numero, titulo, detalhe in etapas:
+        n = int(numero)
+        classe = ("atual" if n == atual else
+                  "concluida" if n < atual else "")
+        pedacos.append(
+            f'<div class="etapa {classe}"><div class="bola">'
+            f'{"✓" if n < atual else numero}</div>'
+            f'<div class="rotulo"><b>{titulo}</b>{detalhe}</div></div>')
+    st.markdown('<div class="sema-trilha">' + "".join(pedacos) + "</div>",
+                unsafe_allow_html=True)
 
 
 st.set_page_config(page_title="Licenciamento Ambiental — SEMA Campo Bom",
@@ -102,6 +183,11 @@ st.set_page_config(page_title="Licenciamento Ambiental — SEMA Campo Bom",
 
 # ---- Preferências: tema claro (padrão) ou escuro, na barra lateral ----
 with st.sidebar:
+    st.markdown(
+        '<div class="sema-marca"><div class="titulo" style="font-size:1.05rem">'
+        'SEMA · Campo Bom</div><div class="subtitulo">Secretaria do Meio '
+        'Ambiente — licenciamento ambiental</div></div>',
+        unsafe_allow_html=True)
     st.header("⚙️ Preferências")
     st.toggle("🌙 Tema escuro", key="tema_escuro",
               help="Alterna entre o tema claro (padrão) e o tema escuro.")
@@ -364,7 +450,10 @@ def salvar_entrada_real(formularios: list, dados: dict) -> None:
 # ETAPA 1 — Página inicial (só a inserção dos documentos)
 # ======================================================================
 def pagina_upload() -> None:
-    st.title("🌿 Sistema de Verificação do Licenciamento Ambiental")
+    cabecalho_institucional(
+        "Prefeitura Municipal de Campo Bom/RS · leitura do requerimento, "
+        "conferência de documentos e cálculo de taxa")
+    trilha_etapas(atual=1)
     st.subheader("Secretaria Municipal do Meio Ambiente — Campo Bom/RS")
 
     st.markdown(
@@ -454,7 +543,9 @@ def pagina_analise() -> None:
     resumo = processo.get("resumo_quadro", {})
     analises = processo.get("analises", {})
 
-    st.title("📋 Etapa 2 — Avaliação da documentação")
+    cabecalho_institucional(
+        "Dossiê do processo · triagem, taxas, auditoria técnica e parecer")
+    trilha_etapas(atual=2)
     if st.button("⬅️ Enviar outros documentos"):
         st.session_state.etapa = "upload"
         st.session_state.processo = None
@@ -549,6 +640,10 @@ def pagina_analise() -> None:
             "Arquivo apresentado": q.get("arquivo") or "—",
             "Pendências": "  |  ".join(q.get("pendencias") or []) or "—",
         } for q in quadro]
+        st.caption("Legenda: ✅ Em conformidade · 🟡 Com pendência(s) · "
+                   "❌ Não apresentado · ⚪ Sem análise — o detalhe de cada "
+                   "linha está na coluna Pendências e na triagem "
+                   "administrativa abaixo.")
         st.dataframe(pd.DataFrame(linhas_df), width="stretch",
                      hide_index=True, height=660)
     else:

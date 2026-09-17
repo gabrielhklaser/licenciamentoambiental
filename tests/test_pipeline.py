@@ -1498,3 +1498,28 @@ def test_auditor_corrige_erro_confirmado_e_revalida(tmp_path):
     alvo = [e for e in auditor.erros if e.id == "HIG-NEWLINE"][0]
     assert alvo.status == "CORRIGIDO" and alvo.corrigido
     assert (cfg / "exemplo.json").read_bytes().endswith(b"\n")
+
+
+def test_frontend_skill_frontend_design_assinatura():
+    """Skill frontend-design aplicada: cabeçalho institucional + TRILHA DE
+    ETAPAS (assinatura) visíveis nas duas telas, com a etapa corrente
+    destacada, e legenda do semáforo no quadro da Etapa 2."""
+    from streamlit.testing.v1 import AppTest
+    at = AppTest.from_file(str(RAIZ / "app.py"), default_timeout=120)
+    at.run()
+    md_inicial = "\n".join(m.value for m in at.markdown)
+    assert "sema-trilha" in md_inicial
+    assert "SEMA · Campo Bom" in md_inicial
+    at.radio[0].set_value("LP")
+    at.radio[1].set_value("Primeira licença")
+    at.run()
+    fb = (EXEMPLOS / REAL).read_bytes()
+    at.file_uploader[0].set_value([("condominios.html", fb, "text/html")])
+    at.run()
+    [b for b in at.button if "Analisar" in b.label][0].click()
+    at.run()
+    assert not at.exception
+    md_analise = "\n".join(m.value for m in at.markdown)
+    assert "Avaliar o dossiê" in md_analise
+    legendas = "\n".join(c.value for c in at.caption)
+    assert "Legenda: ✅ Em conformidade" in legendas
