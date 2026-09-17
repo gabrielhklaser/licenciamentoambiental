@@ -1736,3 +1736,38 @@ def test_projeto_urbanistico_sem_profissional_reconhecido_nao_crasha():
                                 status=StatusValidacao.PENDENTE,
                                 itens_reprovados=[], trecho_referencia=None)
     assert r_none.trecho_referencia is None
+
+
+def test_emissao_parecer_tecnico_download_funciona():
+    """REGRESSÃO do 'botão de baixar o parecer não baixa arquivo algum':
+    (1) o docx é gerado com bytes válidos e abre como documento Word;
+    (2) o painel marca a confirmação e APRESENTA o download_button habilitado
+    + o LINK data-URI de fallback (à prova de proxy), decodificável de volta
+    para um .docx válido; (3) cópia auditável em saidas/."""
+    import base64
+    import io
+    from streamlit.testing.v1 import AppTest
+    at = AppTest.from_file(str(RAIZ / "app.py"), default_timeout=180)
+    at.run()
+    at.radio[0].set_value("LP")
+    at.radio[1].set_value("Primeira licença")
+    at.run()
+    fb = (EXEMPLOS / REAL).read_bytes()
+    at.file_uploader[0].set_value([("condominios.html", fb, "text/html")])
+    at.run()
+    [b for b in at.button if "Analisar" in b.label][0].click()
+    at.run()
+    assert not at.exception
+    at.checkbox[0].check().run()
+    assert not at.exception
+    assert len(at.download_button) == 1
+    md = "\n".join(m.value for m in at.markdown)
+    assert "CLIQUE AQUI" in md and "base64," in md
+    inicio = md.index("base64,") + len("base64,")
+    fim = md.index('"', inicio)
+    docx = base64.b64decode(md[inicio:fim])
+    from docx import Document
+    doc = Document(io.BytesIO(docx))  # abre como Word válido
+    textos = "\n".join(p.text for p in doc.paragraphs)
+    assert "PARECER TÉCNICO Nº 001/2026" in textos
+    assert (RAIZ / "saidas" / "parecer_tecnico_001-2026.docx").exists()

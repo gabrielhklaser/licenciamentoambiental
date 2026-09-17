@@ -843,22 +843,56 @@ def pagina_analise() -> None:
                                 max_value=180, value=30)
 
         if revisado:
-            docx_bytes = GeradorOficios().gerar_parecer_tecnico(
-                dados_processo=dados,
-                quadro_documentos=quadro,
-                resultado_admin=admin,
-                resultados_tecnicos=tecnicos,
-                arquivos_recebidos=processo.get("arquivos") or [],
-                resumo_quadro=resumo,
-                comentarios_analista=comentarios or None,
-                numero_parecer=numero,
-                prazo_dias=int(prazo))
-            st.download_button(
-                label="📄 Baixar Parecer Técnico (.docx)",
-                data=docx_bytes,
-                file_name=f"parecer_tecnico_{numero.replace('/', '-')}.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                type="primary", width="stretch")
+            # gera UMA vez por (número, prazo, comentários) e guarda na sessão:
+            # o clique do download re-renderiza a página sem regenerar o docx
+            chave_parecer = (numero, int(prazo), comentarios or "")
+            if (st.session_state.get("parecer_docx") is None
+                    or st.session_state.get("parecer_chave") != chave_parecer):
+                try:
+                    st.session_state["parecer_docx"] = \
+                        GeradorOficios().gerar_parecer_tecnico(
+                            dados_processo=dados,
+                            quadro_documentos=quadro,
+                            resultado_admin=admin,
+                            resultados_tecnicos=tecnicos,
+                            arquivos_recebidos=processo.get("arquivos") or [],
+                            resumo_quadro=resumo,
+                            comentarios_analista=comentarios or None,
+                            numero_parecer=numero,
+                            prazo_dias=int(prazo))
+                    st.session_state["parecer_chave"] = chave_parecer
+                    # cópia auditável em disco (saidas/ é gitignored)
+                    _pasta = Path("saidas")
+                    _pasta.mkdir(exist_ok=True)
+                    (_pasta / f"parecer_tecnico_{numero.replace('/', '-')}"
+                     f".docx").write_bytes(
+                        st.session_state["parecer_docx"])
+                except Exception as exc:  # noqa: BLE001
+                    st.session_state["parecer_docx"] = None
+                    st.error(f"❌ Falha ao GERAR o parecer: {exc}")
+            docx_bytes = st.session_state.get("parecer_docx")
+            if docx_bytes:
+                st.download_button(
+                    label="📄 Baixar Parecer Técnico (.docx)",
+                    data=docx_bytes,
+                    file_name=f"parecer_tecnico_{numero.replace('/', '-')}.docx",
+                    mime="application/vnd.openxmlformats-officedocument."
+                         "wordprocessingml.document",
+                    type="primary", width="stretch", key="dl_parecer")
+                # FALLBACK à prova de proxy: o download do Streamlit usa a rota
+                # /media/ que pode não atravessar o proxy do preview; o link
+                # data-URI viaja no próprio conteúdo da página e SEMPRE baixa
+                import base64 as _b64
+                _link = _b64.b64encode(docx_bytes).decode("ascii")
+                _nome = f"parecer_tecnico_{numero.replace('/', '-')}.docx"
+                st.markdown(
+                    '<a download="' + _nome + '" href="data:application/'
+                    'vnd.openxmlformats-officedocument.wordprocessingml.'
+                    'document;base64,' + _link + '">'
+                    "⬇️ Se o botão acima não iniciar o download, "
+                    "CLIQUE AQUI</a>", unsafe_allow_html=True)
+                st.caption(f"Documento gerado com {len(docx_bytes) / 1024:.0f} "
+                           "KB · cópia salva em saidas/")
         else:
             st.button("📄 Baixar Parecer Técnico (.docx)", disabled=True,
                       width="stretch",

@@ -18,6 +18,24 @@
 
 ---
 
+## [2026-09-17] EMISSÃO DO PARECER TÉCNICO não baixava — commit deste envio
+- **Arquivos:** `app.py` (bloco "PARECER TÉCNICO (botão final)"),
+  `.gitignore` (+`saidas/`), `tests/test_pipeline.py` (+1 teste), `MUDANCAS.md`.
+- **O quê:** o download_button renderizava, mas o download do Streamlit usa a
+  rota `/media/`, que pode não atravessar o proxy do preview -> nenhum arquivo
+  baixava. Refeito: (1) docx gerado UMA vez por (número, prazo, comentários) e
+  cacheado em session_state (clique re-renderiza sem regenerar); (2)
+  st.download_button mantido; (3) NOVO fallback LINK data-URI (base64 embutido
+  no conteúdo da página) que SEMPRE baixa, mesmo atrás de proxy; (4) falha de
+  geração agora aparece como st.error (antes podia falhar em silêncio);
+  (5) cópia auditável em saidas/parecer_tecnico_<nº>.docx (gitignored).
+- **Por quê:** reportado pelo licenciador ("o botão de baixar o parecer
+  técnico não baixa arquivo algum").
+- **Como reverter:** `git revert <hash deste commit>`.
+- **Estado:** 119 testes OK (rodada dupla) · teste prova o .docx válido
+  (python-docx abre e contém "PARECER TÉCNICO Nº 001/2026").
+---
+
 ## [2026-09-17] CRASH ValidationError em trecho_referencia — commit deste envio
 - **Arquivos:** `licenciamento/auditor_tecnico.py` (1 linha),
   `licenciamento/esquemas_tecnicos.py` (2 linhas), `tests/test_pipeline.py` (+1 teste),
