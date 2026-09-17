@@ -1523,3 +1523,91 @@ def test_frontend_skill_frontend_design_assinatura():
     assert "Avaliar o dossiê" in md_analise
     legendas = "\n".join(c.value for c in at.caption)
     assert "Legenda: ✅ Em conformidade" in legendas
+
+
+# ==============================================================================
+# DUPLA CHECAGEM dos TRs (laudo geológico, LCV, fauna) ponto a ponto
+# ==============================================================================
+def test_trs_dupla_checagem_geologico_lcv_fauna():
+    """Laudo geológico, cobertura vegetal e inventário de fauna são confrontados
+    com os TRs do banco (gabarito_trs.json) SEMPRE em DUPLA CHECAGEM: 2ª
+    execução idêntica + TR confirmado pelo título; inconformidades citadas
+    ponto a ponto com a exigência do TR."""
+    from licenciamento.auditor_tecnico import AuditorTecnico
+    auditor = AuditorTecnico()
+
+    # --- LAUDO GEOLÓGICO: entra por infiltração/geológico (sem 'sondagem') ---
+    geo = ("LAUDO GEOLÓGICO DE CAMPO\nEnsaios de infiltração duplo anel e "
+           "análise geotécnica do terreno. Lençol freático em 1,2 m.\n")
+    res_geo = auditor.auditar_com_dupla_checagem("geo.pdf", geo)
+    assert any("Meio Físico" in r.norma_tr for r in res_geo), \
+        [r.norma_tr for r in res_geo]
+    r0 = [r for r in res_geo if "Meio Físico" in r.norma_tr][0]
+    assert r0.metricas["dupla_checagem"].startswith("OK")
+    assert "tr_confirmado_pelo_titulo" in r0.metricas
+
+    # --- LCV: cada inconformidade cita o ITEM do TR ---
+    lcv = ("LAUDO DE COBERTURA VEGETAL\nDescrição do método de inventário "
+           "florestal com esforço amostral.\n")
+    res_lcv = auditor.auditar_com_dupla_checagem("lcv.pdf", lcv)
+    r_lcv = [r for r in res_lcv if "Cobertura" in r.norma_tr][0]
+    assert r_lcv.status.value == "PENDENTE"
+    unidos = " ".join(r_lcv.itens_reprovados)
+    assert "Item obrigatório" in unidos and "TR Laudo de Cobertura Vegetal" in unidos
+    assert "fitossociológico" in unidos  # item específico do TR citado
+    assert r_lcv.metricas["dupla_checagem"].startswith("OK")
+
+    # --- FAUNA: metodologia do TR LFS ponto a ponto ---
+    fauna = ("INVENTÁRIO DE FAUNA\nBusca ativa com armadilhas de interceptação "
+             "e queda para mastofauna; amostragens em primavera.\n")
+    res_f = auditor.auditar_com_dupla_checagem("fauna.pdf", fauna)
+    r_f = [r for r in res_f if "Fauna" in r.norma_tr][0]
+    unidos_f = " ".join(r_f.itens_reprovados)
+    if r_f.status.value != "CONFORME":
+        assert "TR LFS" in unidos_f or "TR Laudo de Fauna" in r_f.norma_tr
+
+
+def test_trs_dupla_checagem_roteamento_divergente_e_instavel():
+    """Se o documento se declara 'Laudo Geológico' mas nenhum TR correspondente
+    foi aplicado, a dupla checagem de roteamento SINALIZA (nunca silencia);
+    execuções instáveis (1ª x 2ª divergentes) também viram REVISAO_MANUAL."""
+    from licenciamento.auditor_tecnico import (AuditorTecnico,
+                                               OrigemAnalise,
+                                               ResultadoValidacao)
+    from licenciamento.esquemas_tecnicos import StatusValidacao
+    auditor = AuditorTecnico()
+    # título declara LCV, mas a disputa RFO x LCV mantém só o RFO:
+    # a dupla checagem de roteamento SINALIZA a ausência do TR esperado
+    texto = ("LAUDO DE COBERTURA VEGETAL\nTexto sobre reposição florestal: "
+             "densidade de plantio de mudas nativas para compensação de "
+             "indivíduos suprimidos.\n")
+    res = auditor.auditar_com_dupla_checagem("misto.pdf", texto)
+    assert any("roteamento" in r.norma_tr.lower() for r in res), \
+        [r.norma_tr for r in res]
+    # e o oposto: título geológico com sondagem aplicada NÃO sinaliza
+    res_ok = auditor.auditar_com_dupla_checagem(
+        "geo2.pdf", "LAUDO GEOLÓGICO\nSondagens e ensaios de infiltração; "
+        "lençol freático a 2,5 m.\n")
+    assert not any("roteamento" in r.norma_tr.lower() for r in res_ok)
+
+    class AuditorInstavel(AuditorTecnico):
+        def __init__(self):
+            super().__init__()
+            self.n = 0
+
+        def validar_pca(self, nome_documento, texto):
+            self.n += 1
+            status = (StatusValidacao.CONFORME if self.n % 2
+                      else StatusValidacao.REVISAO_MANUAL)
+            return ResultadoValidacao(
+                documento_analisado=nome_documento,
+                norma_tr="TR PCA (2026, item 5.1)", status=status,
+                itens_reprovados=[],
+                metricas={"execucao": self.n},
+                origem=OrigemAnalise.DETERMINISTICO)
+
+    res2 = AuditorInstavel().auditar_com_dupla_checagem(
+        "pca.pdf", "PLANO DE CONTROLE AMBIENTAL cronograma de relatórios "
+                   "trimestrais supressão de vegetação")
+    assert any("DIVERGENTES" in i for r in res2
+               for i in r.itens_reprovados)

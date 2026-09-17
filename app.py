@@ -376,7 +376,8 @@ def executar_analise(arquivos: list, tipo_selecionado: str,
         arquivos_analise.append(registro)
         analises[arq.name] = validador.analisar_documento(arq.name, texto)
         if len(texto.strip()) >= 40:
-            resultados_tecnicos.extend(auditor.auditar_documento(
+            # DUPLA CHECAGEM sempre: 2ª execução + conferência título x TR
+            resultados_tecnicos.extend(auditor.auditar_com_dupla_checagem(
                 arq.name, texto, arts_formulario=arts_formulario or None))
 
     # o formulário também participa do casamento do quadro
@@ -710,6 +711,13 @@ def pagina_analise() -> None:
             with st.container(border=True):
                 st.markdown(cab)
                 st.caption(f"Motor da análise: {resultado.origem.value}")
+            _dc = (resultado.metricas or {}).get("dupla_checagem")
+            if _dc:
+                _tt = (resultado.metricas or {}).get(
+                    "tr_confirmado_pelo_titulo")
+                st.caption("🔎 Dupla checagem: " + str(_dc)
+                           + (" · TR confirmado pelo título do documento"
+                              if _tt else ""))
                 if resultado.itens_reprovados:
                     st.error("\n".join(f"**✗** {item}" for item in resultado.itens_reprovados))
                 if resultado.trecho_referencia:

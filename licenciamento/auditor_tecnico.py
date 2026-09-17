@@ -904,6 +904,12 @@ class AuditorTecnico:
         # --- Sondagem / Meio Físico (RSCC ou Parcelamento) ---
         if "sondagem" in t or "trincheira" in t:
             sinal("SONDAGEM", 2)
+        # LAUDO GEOLÓGICO sem a palavra 'sondagem': ensaios de infiltração
+        # (duplo anel) e/ou auto-declaração no título são do TR Meio Físico
+        if "infiltracao" in t:
+            sinal("SONDAGEM", 2)
+        if "geolog" in t or "geotecnic" in t:
+            sinal("SONDAGEM", 1)
         if "lencol freatico" in t or ("cota base" in t and "aterro" in t):
             sinal("SONDAGEM", 2)
         if "furos" in t and ("ha " in t or "hectare" in t):
@@ -1076,6 +1082,86 @@ class AuditorTecnico:
                 f"confere com as declaradas no formulário HTML "
                 f"({declaradas_txt}) - pode ser ART de outra etapa; conferir."],
             metricas=metricas, origem=OrigemAnalise.DETERMINISTICO)
+
+    # o que cada tipo de laudo DECLARA SER no título -> TR que DEVE aplicar
+    TR_ESPERADO_PELO_TITULO = [
+        ("laudo geologico", "SONDAGEM"), ("estudo geologico", "SONDAGEM"),
+        ("geotecnico", "SONDAGEM"),
+        ("cobertura vegetal", "LCV"), ("inventario florestal", "LCV"),
+        ("inventario de fauna", "FAUNA"), ("laudo de fauna", "FAUNA"),
+        ("impacto de vizinhanca", "EIV"),
+        ("plano de controle ambiental", "PCA"),
+        ("recuperacao de area degradada", "PRAD"),
+        ("reposicao florestal", "RFO"),
+    ]
+
+    @classmethod
+    def _tr_esperado_pelo_titulo(cls, texto: str) -> Optional[str]:
+        """O que o documento se DECLARA SER, lido no título/abertura."""
+        cabecalho = ProvedorLLMHeuristico._norm(texto)[:350]
+        for palavra, tr in cls.TR_ESPERADO_PELO_TITULO:
+            if palavra in cabecalho:
+                return tr
+        return None
+
+    def auditar_com_dupla_checagem(self, nome_documento: str, texto: str,
+                                   arts_formulario: Optional[list[dict]] = None
+                                   ) -> list[ResultadoValidacao]:
+        """AUDITORIA TÉCNICA COM DUPLA CHECAGEM (sempre nesta fase):
+        1ª e 2ª EXECUÇÃO - cada TR é revalidado; resultados divergentes
+        viram REVISAO_MANUAL explícita;
+        ROTEAMENTO - o que o documento DECLARA SER no título deve ter o TR
+        correspondente aplicado; se não, sinaliza (nunca silencia)."""
+        pass_1 = self.auditar_documento(nome_documento, texto, arts_formulario)
+        pass_2 = self.auditar_documento(nome_documento, texto, arts_formulario)
+
+        def chave(res: ResultadoValidacao):
+            return (res.norma_tr, res.status.value,
+                    tuple(sorted(res.itens_reprovados)))
+
+        if [chave(r) for r in pass_1] != [chave(r) for r in pass_2]:
+            pass_1.append(ResultadoValidacao(
+                documento_analisado=nome_documento,
+                norma_tr="Dupla checagem dos TRs",
+                status=StatusValidacao.REVISAO_MANUAL,
+                itens_reprovados=[
+                    "Resultados DIVERGENTES entre a 1ª e a 2ª execução da "
+                    "auditoria técnica - conferir manualmente.",
+                    "1ª execução: " + ("; ".join(
+                        f"{r.norma_tr}={r.status.value}" for r in pass_1) or "vazia"),
+                    "2ª execução: " + ("; ".join(
+                        f"{r.norma_tr}={r.status.value}" for r in pass_2) or "vazia")],
+                origem=OrigemAnalise.DETERMINISTICO))
+        else:
+            titulo = self._tr_esperado_pelo_titulo(texto)
+            aplicados = {("SONDAGEM" if "Meio Físico" in r.norma_tr
+                          else "LCV" if "Cobertura" in r.norma_tr
+                          else "FAUNA" if "Fauna" in r.norma_tr
+                          else "EIV" if "Vizinhan" in r.norma_tr
+                          else "PRAD" if "PRAD" in r.norma_tr
+                          else "RFO" if "RFO" in r.norma_tr
+                          else "PCA" if "PCA" in r.norma_tr
+                          else r.norma_tr) for r in pass_1}
+            for r in pass_1:
+                r.metricas = {**(r.metricas or {}),
+                              "dupla_checagem": "OK - 2ª execução idêntica"}
+                if titulo and titulo in aplicados:
+                    r.metricas["tr_confirmado_pelo_titulo"] = (
+                        "sim - documento declara ser do tipo coberto por "
+                        "este TR")
+            if titulo and titulo not in aplicados:
+                pass_1.append(ResultadoValidacao(
+                    documento_analisado=nome_documento,
+                    norma_tr="Dupla checagem de roteamento de TRs",
+                    status=StatusValidacao.REVISAO_MANUAL,
+                    itens_reprovados=[
+                        f"O documento se declara do tipo '{titulo}' no título, "
+                        "mas NENHUM TR correspondente foi aplicado - verificar "
+                        "o roteamento antes de concluir."],
+                    metricas={"tr_esperado": titulo,
+                              "trs_aplicados": sorted(aplicados)},
+                    origem=OrigemAnalise.DETERMINISTICO))
+        return pass_1
 
     def auditar_documento(self, nome_documento: str, texto: str,
                           arts_formulario: Optional[list[dict]] = None
