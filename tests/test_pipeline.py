@@ -1707,3 +1707,32 @@ def test_agente_conformidade_verificacoes_conferencias():
     erros = auditor.auditar()
     conf = [e for e in erros if e.id.startswith("CONF-")]
     assert not conf, [(e.id, e.descricao) for e in conf]
+
+
+def test_projeto_urbanistico_sem_profissional_reconhecido_nao_crasha():
+    """REGRESSÃO do ValidationError reportado pelo licenciador
+    ('trecho_referencia Input should be a valid string'): projeto urbanístico
+    cujo profissional NÃO confere (ou sem áreas legíveis) deve gerar PENDENTE
+    com trecho_referencia STRING - nunca None/crash no painel."""
+    from licenciamento.auditor_tecnico import AuditorTecnico
+    auditor = AuditorTecnico()
+    proj = ("PROJETO URBANÍSTICO - plantas\\nAssinado por outrem.\\n"
+            "Área total: 500,00 m²\\n")
+    res = auditor.auditar_com_dupla_checagem(
+        "projeto_outrem.pdf", proj,
+        arts_formulario=[{"numero": "202613404",
+                          "nome": "Keli Daiane Bernardes dos Santos",
+                          "secao": "8"}],
+        areas_formulario={"area_total_ha": 1.25, "area_util_ha": 0.32})
+    r = [x for x in res if "urbanístico" in x.norma_tr][0]
+    assert r.status.value == "PENDENTE"
+    assert isinstance(r.trecho_referencia, str)
+    assert any("NÃO confere" in i for i in r.itens_reprovados)
+    assert any("DIVERGE do formulário" in i for i in r.itens_reprovados)
+    # e o modelo tolera None explicitamente (defesa em profundidade)
+    from licenciamento.esquemas_tecnicos import (ResultadoValidacao,
+                                                 StatusValidacao)
+    r_none = ResultadoValidacao(documento_analisado="x", norma_tr="y",
+                                status=StatusValidacao.PENDENTE,
+                                itens_reprovados=[], trecho_referencia=None)
+    assert r_none.trecho_referencia is None

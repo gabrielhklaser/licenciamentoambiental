@@ -17,7 +17,7 @@ Contrato único de saída por validação (ResultadoValidacao):
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -121,7 +121,8 @@ class ResultadoValidacao(BaseModel):
     norma_tr: str = ""                      # identificação do Termo de Referência
     status: StatusValidacao = StatusValidacao.REVISAO_MANUAL
     itens_reprovados: list[str] = Field(default_factory=list)
-    trecho_referencia: str = ""
+    # tolera None (converte para ''): nenhum produtor deve quebrar o painel
+    trecho_referencia: Union[str, None] = ""
     metricas: dict[str, Any] = Field(default_factory=dict)
     origem: OrigemAnalise = OrigemAnalise.DETERMINISTICO
 

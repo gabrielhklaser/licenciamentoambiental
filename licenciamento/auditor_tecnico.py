@@ -1246,7 +1246,7 @@ class AuditorTecnico:
                     else StatusValidacao.PENDENTE),
             itens_reprovados=reprov, metricas=metricas,
             trecho_referencia=(f"Profissional: {prof_info}" if prof_info
-                               else None),
+                               else ""),
             origem=OrigemAnalise.DETERMINISTICO)
 
 
