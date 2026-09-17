@@ -107,6 +107,46 @@ with st.sidebar:
               help="Alterna entre o tema claro (padrão) e o tema escuro.")
 aplicar_tema(bool(st.session_state.get("tema_escuro")))
 
+# ---- AGENTE AUDITOR DO SISTEMA (independente): bateria de verificações ->
+# DUPLA CHECAGEM de cada achado -> correção automática segura -> relatório.
+# Botão na barra lateral; resultado no painel logo abaixo. ----
+with st.sidebar:
+    if st.button("🧭 Auditar sistema", type="secondary",
+                 help="Verifica configs, parser (fixtures), pleitos/taxas, "
+                      "ambiente e integração; cada erro é DUPLA-CHECADO e os "
+                      "de correção segura são corrigidos na hora. Bateria "
+                      "completa (com testes): python -m "
+                      "licenciamento.auditor_sistema"):
+        with st.spinner("Agente auditor: detectando e dupla-checando..."):
+            from licenciamento.auditor_sistema import AuditorSistema
+            _aud = AuditorSistema(com_testes=False,
+                                  raiz=Path(__file__).resolve().parent)
+            _aud.auditar()
+            _aud.corrigir()
+            st.session_state["auditoria"] = _aud.relatorio()
+
+if st.session_state.get("auditoria"):
+    with st.expander("🧭 Auditoria do sistema — agente independente",
+                     expanded=True):
+        _rel = st.session_state["auditoria"]
+        _r = _rel["resumo"]
+        _c1, _c2, _c3, _c4 = st.columns(4)
+        _c1.metric("Achados", _r["total"])
+        _c2.metric("Confirmados", _r["por_status"].get("CONFIRMADO", 0))
+        _c3.metric("Corrigidos", _r["por_status"].get("CORRIGIDO", 0))
+        _c4.metric("Pendentes", _r["por_status"].get("PENDENTE", 0))
+        if _rel["erros"]:
+            st.dataframe(pd.DataFrame(
+                [{"ID": e["id"], "Severidade": e["severidade"],
+                  "Status": e["status"], "Componente": e["componente"],
+                  "Descrição": e["descricao"], "Correção": e["correcao"]}
+                 for e in _rel["erros"]],
+                width="stretch", hide_index=True, height=280))
+        else:
+            st.success("✅ Nenhum erro confirmado — sistema íntegro.")
+        st.caption("Achados instáveis (não repetidos na 2ª passada) são "
+                   "descartados como falso positivo · relatórios em auditoria/")
+
 
 # Formatos aceitos no upload (etapa 1) - inclui IMAGENS, pois documentações
 # às vezes são enviadas como fotos/escaneamentos (png, jpg, etc.)

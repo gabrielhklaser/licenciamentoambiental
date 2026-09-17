@@ -1419,3 +1419,63 @@ def test_tema_escuro_toggle_na_barra_lateral():
     # desligar de volta também não pode quebrar
     at.sidebar.toggle[0].set_value(False).run()
     assert not at.exception
+
+
+# ==============================================================================
+# AGENTE AUDITOR DO SISTEMA (independente): detecta -> dupla-checa -> corrige
+# ==============================================================================
+def test_auditor_sistema_bateria_rapida_no_repositorio():
+    """O agente roda a bateria rápida no repositório real: todo achado passa
+    pela DUPLA CHECAGEM (confirmado) e NÃO sobra erro de severidade alta
+    (ambiente, parser nas fixtures, pleitos/taxas, integração do app)."""
+    from licenciamento.auditor_sistema import AuditorSistema
+    auditor = AuditorSistema(com_testes=False)
+    erros = auditor.auditar()
+    for e in erros:
+        assert e.confirmado, f"{e.id} não foi dupla-checado: {e.descricao}"
+    altas = [e for e in erros if e.severidade == "alta"]
+    assert not altas, [f"{e.id}: {e.descricao}" for e in altas]
+    rel = auditor.relatorio()
+    assert rel["resumo"]["total"] == len(erros)
+    assert "erros" in rel and "log" in rel
+
+
+def test_auditor_dupla_checagem_descarta_falso_positivo():
+    """Achado que NÃO se repete na 2ª passada isolada é descartado como
+    FALSO_POSITIVO (registrado no log), sem atacar correção."""
+    from licenciamento.auditor_sistema import AuditorSistema, Erro
+
+    class AuditorInstavel(AuditorSistema):
+        def __init__(self):
+            super().__init__(com_testes=False)
+            self.chamadas = 0
+
+        def verificar_higiene_arquivos(self):
+            self.chamadas += 1
+            if self.chamadas == 1:  # só na 1ª passada (instável)
+                return [Erro(id="HIG-FANTASMA", severidade="baixa",
+                             componente="x", descricao="achado instável",
+                             evidencia="-", correcao="-")]
+            return []
+
+    auditor = AuditorInstavel()
+    erros = auditor.auditar()
+    assert not erros
+    assert any("FALSO_POSITIVO" in l for l in auditor.log)
+
+
+def test_auditor_corrige_erro_confirmado_e_revalida(tmp_path):
+    """Erro CONFIRMADO com correção automática (newline ausente) é corrigido
+    na hora e REVALIDADO: status vira CORRIGIDO e o arquivo fica íntegro."""
+    from licenciamento.auditor_sistema import AuditorSistema
+    cfg = tmp_path / "config"
+    cfg.mkdir()
+    (cfg / "exemplo.json").write_bytes(b'{"ok": true}')  # sem newline
+    auditor = AuditorSistema(com_testes=False, raiz=tmp_path)
+    erros = auditor.auditar()
+    achados = [e for e in erros if e.id == "HIG-NEWLINE"]
+    assert achados and achados[0].confirmado
+    auditor.corrigir(instalar_pacotes=False)
+    alvo = [e for e in auditor.erros if e.id == "HIG-NEWLINE"][0]
+    assert alvo.status == "CORRIGIDO" and alvo.corrigido
+    assert (cfg / "exemplo.json").read_bytes().endswith(b"\n")
