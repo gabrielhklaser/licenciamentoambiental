@@ -1739,11 +1739,15 @@ def test_projeto_urbanistico_sem_profissional_reconhecido_nao_crasha():
 
 
 def test_emissao_parecer_tecnico_download_funciona():
-    """REGRESSÃO do 'botão de baixar o parecer não baixa arquivo algum':
-    (1) o docx é gerado com bytes válidos e abre como documento Word;
-    (2) o painel marca a confirmação e APRESENTA o download_button habilitado
-    + o LINK data-URI de fallback (à prova de proxy), decodificável de volta
-    para um .docx válido; (3) cópia auditável em saidas/."""
+    """REWORK do parecer (usuário: 'botão ainda não aciona download'):
+    o botão agora ACIONA O COMPILADOR DE TEXTO — prévia EDITÁVEL em
+    text_area antes de exportar — e a exportação oferece .docx E .pdf,
+    ambos com LINK data-URI embutido no markdown (rota /media/ não
+    atravessa o proxy do preview). Fluxo testado ponta a ponta:
+    (1) clicar 'Gerar parecer' compila o texto com o cabeçalho oficial;
+    (2) a prévia editável contém 'PARECER TÉCNICO Nº';
+    (3) docx decodificado do link abre como Word válido;
+    (4) pdf decodificado valida com pypdf; (5) cópias em saidas/."""
     import base64
     import io
     from streamlit.testing.v1 import AppTest
@@ -1760,14 +1764,93 @@ def test_emissao_parecer_tecnico_download_funciona():
     assert not at.exception
     at.checkbox[0].check().run()
     assert not at.exception
-    assert len(at.download_button) == 1
+
+    # (1) o botão agora COMPILA o texto em vez de baixar direto
+    gerar = [b for b in at.button if "Gerar parecer" in b.label]
+    assert gerar, "botão 'Gerar parecer (texto editável)' ausente"
+    gerar[0].click()
+    at.run()
+    assert not at.exception
+
+    # (2) prévia EDITÁVEL presente e com o cabeçalho do parecer
+    area = [ta for ta in at.text_area
+            if "PARECER TÉCNICO" in (ta.value or "")]
+    assert area, "prévia editável do parecer não apareceu"
+    assert "6. CONCLUSÃO" in area[0].value
+
+    # (3)(4) exportações .docx e .pdf com links data-URI decodificáveis
     md = "\n".join(m.value for m in at.markdown)
-    assert "CLIQUE AQUI" in md and "base64," in md
-    inicio = md.index("base64,") + len("base64,")
-    fim = md.index('"', inicio)
-    docx = base64.b64decode(md[inicio:fim])
+    assert md.count("base64,") >= 2, "faltou link data-URI (docx/pdf)"
+    links = []
+    pos = 0
+    for _ in range(2):
+        ini = md.index("base64,", pos) + len("base64,")
+        fim_l = md.index('"', ini)
+        links.append(base64.b64decode(md[ini:fim_l]))
+        pos = fim_l
     from docx import Document
-    doc = Document(io.BytesIO(docx))  # abre como Word válido
-    textos = "\n".join(p.text for p in doc.paragraphs)
-    assert "PARECER TÉCNICO Nº 001/2026" in textos
+    doc = Document(io.BytesIO(links[0]))  # .docx abre como Word válido
+    assert "PARECER TÉCNICO Nº 001/2026" in "\n".join(
+        p.text for p in doc.paragraphs)
+    assert links[1][:5] == b"%PDF-"
+    from pypdf import PdfReader
+    leitor = PdfReader(io.BytesIO(links[1]))
+    assert "PARECER TÉCNICO" in "\n".join(
+        (pg.extract_text() or "") for pg in leitor.pages)
+
+    # (5) cópias auditáveis
     assert (RAIZ / "saidas" / "parecer_tecnico_001-2026.docx").exists()
+    assert (RAIZ / "saidas" / "parecer_tecnico_001-2026.pdf").exists()
+
+
+def test_compilador_parecer_texto_unico_fonte():
+    """O COMPILADOR DE TEXTO é a fonte única: compilar_texto_parecer
+    produz as 6 seções + pendências; exportar_docx/exportar_pdf convertem
+    o TEXTO (editado ou não) em arquivos válidos — inclui edição simulada
+    do analista preservada na exportação."""
+    import io
+    from datetime import date
+    from licenciamento.compilador_parecer import (compilar_texto_parecer,
+                                                  exportar_docx, exportar_pdf)
+    texto = compilar_texto_parecer(
+        dados_processo={
+            "empreendedor": {"nome_razao_social": "Maria Belle",
+                             "cpf_cnpj": "43.929.749/0001-20"},
+            "empreendimento": {"nome_empreendimento": "Condomínio Maria "
+                                                  "Belle",
+                               "ramo_atividade": "3414,40",
+                               "porte": "Mínimo",
+                               "potencial_poluidor": "Médio"},
+            "pleito": {"tipo_licenca": "LP",
+                       "fases_componentes": ["LP"]}},
+        quadro_documentos=[
+            {"documento": "Estudo Ambiental", "situacao": "PENDENTE",
+             "pendencias": ["mapa de vizinhança ausente"],
+             "arquivo": "estudo.pdf"},
+            {"documento": "Termo de Referência — PCA",
+             "situacao": "CONFORME", "pendencias": [], "arquivo": "pca.pdf"}],
+        resultado_admin={"bloqueios": ["CNPJ divergente do formulário"],
+                         "documentos_pendentes": []},
+        resultados_tecnicos=[],
+        arquivos_recebidos=["estudo.pdf", "pca.pdf"],
+        resumo_quadro={"CONFORME": 1, "PENDENTE": 1, "NAO_APRESENTADO": 0},
+        comentarios_analista="Conferido com o formulário oficial.",
+        numero_parecer="001/2026", prazo_dias=30,
+        data_referencia=date(2026, 9, 17))
+    for marcador in ("PARECER TÉCNICO Nº 001/2026", "1. IDENTIFICAÇÃO",
+                     "2. DOCUMENTAÇÃO", "3. ANÁLISE", "4. PENDÊNCIAS "
+                     "ADMINISTRATIVAS", "5. ANÁLISE TÉCNICA", "6. CONCLUSÃO",
+                     "CNPJ divergente", "prazo de 30 dias"):
+        assert marcador in texto, marcador
+    # analista edita o texto → a edição vai para as exportações
+    texto_editado = texto.replace("Conferido com o formulário oficial.",
+                                  "EDIÇÃO DO ANALISTA: conferido e ok.")
+    docx = exportar_docx(texto_editado, "001/2026")
+    from docx import Document
+    corpo = "\n".join(p.text for p in Document(io.BytesIO(docx)).paragraphs)
+    assert "EDIÇÃO DO ANALISTA" in corpo
+    pdf = exportar_pdf(texto_editado, "001/2026")
+    from pypdf import PdfReader
+    cont = "\n".join((pg.extract_text() or "")
+                      for pg in PdfReader(io.BytesIO(pdf)).pages)
+    assert "EDIÇÃO DO ANALISTA" in cont

@@ -32,6 +32,8 @@ from licenciamento.auditor_tecnico import AuditorTecnico
 from licenciamento.calibracao import Calibracao
 from licenciamento.esquemas_tecnicos import StatusValidacao
 from licenciamento.gerador_oficios import GeradorOficios
+from licenciamento.compilador_parecer import (compilar_texto_parecer,
+                                              exportar_docx, exportar_pdf)
 from licenciamento.parser_formulario import FormularioParser
 from licenciamento.validador_documentos import (EXTENSOES_IMAGEM,
                                                 EXTENSOES_TEXTO,
@@ -149,6 +151,19 @@ def aplicar_tema(escuro: bool) -> None:
     st.markdown(CSS_TOKENS, unsafe_allow_html=True)
     if escuro:
         st.markdown(CSS_TEMA_ESCURO, unsafe_allow_html=True)
+
+
+def link_download(bytes_conteudo: bytes, nome_arquivo: str,
+                  mime: str, rotulo: str) -> str:
+    """LINK DE DOWNLOAD data-URI (à prova de proxy): o conteúdo viaja dentro
+    da própria página, então SEMPRE baixa no navegador."""
+    import base64 as _b64
+    payload = _b64.b64encode(bytes_conteudo).decode("ascii")
+    return ('<a download="' + nome_arquivo + '" href="data:' + mime
+            + ";base64," + payload + '" style="display:inline-block;'
+            'padding:6px 10px;border:1px solid var(--c-border, #ccc);'
+            'border-radius:8px;text-decoration:none;font-size:.9rem">'
+            + rotulo + "</a>")
 
 
 def cabecalho_institucional(subtitulo: str) -> None:
@@ -843,14 +858,18 @@ def pagina_analise() -> None:
                                 max_value=180, value=30)
 
         if revisado:
-            # gera UMA vez por (número, prazo, comentários) e guarda na sessão:
-            # o clique do download re-renderiza a página sem regenerar o docx
-            chave_parecer = (numero, int(prazo), comentarios or "")
-            if (st.session_state.get("parecer_docx") is None
-                    or st.session_state.get("parecer_chave") != chave_parecer):
+            # 1) COMPILAR o parecer como TEXTO (prévia editável + copiar/colar)
+            col_a, col_b = st.columns([1.2, 2])
+            with col_a:
+                gerar = st.button("📝 Gerar parecer (texto editável)",
+                                  type="primary", width="stretch",
+                                  help="Compila o parecer para prévia "
+                                       "editável. Edite no campo abaixo, "
+                                       "copie/cole ou exporte .docx/.pdf.")
+            if gerar or st.session_state.get("parecer_texto") is None:
                 try:
-                    st.session_state["parecer_docx"] = \
-                        GeradorOficios().gerar_parecer_tecnico(
+                    st.session_state["parecer_texto"] = \
+                        compilar_texto_parecer(
                             dados_processo=dados,
                             quadro_documentos=quadro,
                             resultado_admin=admin,
@@ -860,39 +879,60 @@ def pagina_analise() -> None:
                             comentarios_analista=comentarios or None,
                             numero_parecer=numero,
                             prazo_dias=int(prazo))
-                    st.session_state["parecer_chave"] = chave_parecer
-                    # cópia auditável em disco (saidas/ é gitignored)
-                    _pasta = Path("saidas")
-                    _pasta.mkdir(exist_ok=True)
-                    (_pasta / f"parecer_tecnico_{numero.replace('/', '-')}"
-                     f".docx").write_bytes(
-                        st.session_state["parecer_docx"])
                 except Exception as exc:  # noqa: BLE001
-                    st.session_state["parecer_docx"] = None
-                    st.error(f"❌ Falha ao GERAR o parecer: {exc}")
-            docx_bytes = st.session_state.get("parecer_docx")
-            if docx_bytes:
-                st.download_button(
-                    label="📄 Baixar Parecer Técnico (.docx)",
-                    data=docx_bytes,
-                    file_name=f"parecer_tecnico_{numero.replace('/', '-')}.docx",
-                    mime="application/vnd.openxmlformats-officedocument."
-                         "wordprocessingml.document",
-                    type="primary", width="stretch", key="dl_parecer")
-                # FALLBACK à prova de proxy: o download do Streamlit usa a rota
-                # /media/ que pode não atravessar o proxy do preview; o link
-                # data-URI viaja no próprio conteúdo da página e SEMPRE baixa
-                import base64 as _b64
-                _link = _b64.b64encode(docx_bytes).decode("ascii")
-                _nome = f"parecer_tecnico_{numero.replace('/', '-')}.docx"
-                st.markdown(
-                    '<a download="' + _nome + '" href="data:application/'
-                    'vnd.openxmlformats-officedocument.wordprocessingml.'
-                    'document;base64,' + _link + '">'
-                    "⬇️ Se o botão acima não iniciar o download, "
-                    "CLIQUE AQUI</a>", unsafe_allow_html=True)
-                st.caption(f"Documento gerado com {len(docx_bytes) / 1024:.0f} "
-                           "KB · cópia salva em saidas/")
+                    st.session_state["parecer_texto"] = None
+                    st.error(f"❌ Falha ao COMPILAR o parecer: {exc}")
+                    st.stop()
+
+            texto_final = st.session_state.get("parecer_texto") or ""
+            with st.expander("👁️ Prévia do parecer — EDITÁVEL antes de exportar",
+                             expanded=True):
+                st.caption("Edite livremente abaixo. Para levar a outro "
+                           "documento: selecione tudo (Ctrl+A) e copie "
+                           "(Ctrl+C). Ou exporte .docx/.pdf pelos botões.")
+                texto_final = st.text_area(
+                    "Texto do parecer (editável)", value=texto_final,
+                    height=640, key="parecer_texto_area",
+                    label_visibility="collapsed")
+
+            # 2) EXPORTAR .docx / .pdf a partir do texto (editado ou não)
+            nome_base = f"parecer_tecnico_{numero.replace('/', '-')}"
+            try:
+                bytes_docx = exportar_docx(texto_final, numero)
+                bytes_pdf = exportar_pdf(texto_final, numero)
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"❌ Falha ao EXPORTAR o parecer: {exc}")
+                bytes_docx = bytes_pdf = None
+            if bytes_docx and bytes_pdf:
+                c_docx, c_pdf = st.columns(2)
+                with c_docx:
+                    st.download_button(
+                        label="⬇️ Baixar .docx", data=bytes_docx,
+                        file_name=nome_base + ".docx",
+                        mime="application/vnd.openxmlformats-officedocument."
+                             "wordprocessingml.document",
+                        type="primary", width="stretch", key="dl_parecer_docx")
+                    st.markdown(link_download(
+                        bytes_docx, nome_base + ".docx",
+                        "vnd.openxmlformats-officedocument."
+                        "wordprocessingml.document",
+                        "⬇️ .docx (link direto)"),
+                        unsafe_allow_html=True)
+                with c_pdf:
+                    st.download_button(
+                        label="⬇️ Baixar .pdf", data=bytes_pdf,
+                        file_name=nome_base + ".pdf", mime="application/pdf",
+                        width="stretch", key="dl_parecer_pdf")
+                    st.markdown(link_download(
+                        bytes_pdf, nome_base + ".pdf", "application/pdf",
+                        "⬇️ .pdf (link direto)"), unsafe_allow_html=True)
+                st.caption(f"Prévia: {len(texto_final.splitlines())} linhas · "
+                           f"docx {len(bytes_docx) // 1024} KB · pdf "
+                           f"{len(bytes_pdf) // 1024} KB · cópias em saidas/")
+                _pasta = Path("saidas")
+                _pasta.mkdir(exist_ok=True)
+                (_pasta / (nome_base + ".docx")).write_bytes(bytes_docx)
+                (_pasta / (nome_base + ".pdf")).write_bytes(bytes_pdf)
         else:
             st.button("📄 Baixar Parecer Técnico (.docx)", disabled=True,
                       width="stretch",

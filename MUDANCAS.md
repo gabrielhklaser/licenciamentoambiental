@@ -1,3 +1,37 @@
+## REWORK — Parecer como TEXTO editável + exportação .docx/.pdf
+
+**Arquivos:** `licenciamento/compilador_parecer.py` (NOVO), `app.py` (bloco
+da emissão refeito), `tests/test_pipeline.py` (E2E reescrito + 1 teste do
+compilador), `requirements.txt` (+reportlab), `MUDANCAS.md`.
+
+**O quê:** o botão da emissão NÃO baixa mais nada direto — ele ACIONA O
+COMPILADOR DE TEXTO (pedido do licenciador, pois o download direto não
+atravessava o proxy). `compilar_texto_parecer(...)` produz o parecer como
+TEXTO estruturado (as mesmas 6 seções do docx oficial); o texto aparece em
+prévia EDITÁVEL (`st.text_area` alto dentro de expander aberto) onde o
+analista corrige antes de exportar, e pode simplesmente copiar/colar em
+outro documento (Ctrl+A/Ctrl+C). Do TEXTO final derivam: `.docx`
+(python-docx; títulos do cabeçalho em negrito centralizado, bullets e
+seções numeradas em negrito, recuos itálicos) e `.pdf` (reportlab,
+validado com pypdf — contém "PARECER TÉCNICO" senão erro). Cada
+exportação tem `st.download_button` + LINK data-URI embutido no markdown
+(a rota /media/ não atravessa o proxy do preview). Cópias auditáveis em
+`saidas/` (.docx e .pdf). `skill pdf` instalada local em
+`.claude/skills/pdf/SKILL.md` (commitada; reportlab/pypdf, sem
+credenciais).
+
+**Por quê:** ba020b6 gerava docx válido mas o usuário continuava sem
+conseguir baixar; direção nova: texto editável primeiro, exportação depois
+— e copiar/colar é o caminho garantido.
+
+**Como reverter:** `git revert <hash deste commit>` (o compilador é só
+adição; app.py volta ao fluxo ba020b6).
+
+**Estado:** 120 testes OK ×2; main.py 0; auditor --rapida 0 achados;
+fumigação com o caso real: texto 1.476 ch → docx 36 KB → pdf 3 KB/1 pág.
+
+---
+
 # LOG DE MUDANÇAS — Sistema de Verificação do Licenciamento Ambiental
 
 > **Para o próximo agente:** este arquivo registra TODA mudança estrutural,
