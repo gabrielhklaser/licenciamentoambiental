@@ -41,6 +41,9 @@ def test_parser_extrai_empreendimento_e_coordenadas_utm():
     assert emp["porte"] == "Médio"
     assert emp["potencial_poluidor"] == "Alto"
     assert emp["codram"] == "05.412.1-3"
+    # matrícula = SOMENTE o número (a célula traz 'Matrícula nº 12.345 do
+    # Cartório de Registro de Imóveis de Campo Bom')
+    assert emp["matricula_imovel"] == "12.345"
     assert emp["area_total_ha"] == pytest.approx(3.80)
     coords = emp["coordenadas"]
     assert coords["formato"] == "UTM"
@@ -1305,9 +1308,25 @@ def test_secoes_1_e_2_tabela_real_celula_a_celula():
         "Maria Joaquina Empreendimentos Imobiliários LTDA"
     assert dados["empreendedor"]["cpf_cnpj"] == "43929749000120"
     parser = FormularioParser(str(EXEMPLOS / REAL))
-    endereco_empreendedor = parser._buscar_valor(
-        parser.ROTULOS["endereco_empreendimento"])
-    assert endereco_empreendedor == "Av. Oscar Cirilo Ritzel"
+    # seção 1 (EMPREENDEDOR): endereço/contato próprios, célula a célula
+    ee = dados["empreendedor"]
+    assert ee["endereco"] == "Av. Oscar Cirilo Ritzel"
+    assert ee["numero"] == "220" and ee["bairro"] == "Centro"
+    assert ee["cep"] == "93700-000" and ee["municipio"] == "Campo Bom"
+    assert ee["telefone"] == "(51) 3598-2323"
+    assert ee["email"] == "ermel@ermelcontabil.com.br"
+    # áreas: intervenção != útil != total (célula '1.783,75m² (área útil
+    # total: 3.245,49)' + Quadro de áreas 4.2 'Total 3245,49')
+    assert emp["area_intervencao_ha"] == pytest.approx(0.1784)
+    assert emp["area_util_ha"] == pytest.approx(0.3245)
+    assert emp["area_total_ha"] == pytest.approx(0.3245)
+    # nome do empreendimento: NÃO é o cabeçalho do quadro ('Metragem (m²)')
+    assert emp["nome_empreendimento"] == \
+        "Maria Joaquina Empreendimentos Imobiliários LTDA"
+    # responsável técnico principal (seção 8): nome adjacente ao 'ART nº:'
+    assert dados["responsavel_tecnico"]["nome"] == \
+        "Keli Daiane Bernardes dos Santos"
+    assert dados["responsavel_tecnico"]["registro_art"] == "202613404"
 
 
 def test_valor_a_esquerda_do_rotulo():

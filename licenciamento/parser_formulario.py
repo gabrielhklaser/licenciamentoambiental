@@ -116,7 +116,15 @@ class FormularioParser:
         "nome_fantasia": ["NOME FANTASIA", "NOME FANTASIA (QUANDO HOUVER)",
                           "NOME DE FANTASIA", "NOME COMERCIAL"],
         "cpf_cnpj": ["CPF/CNPJ", "CPF OU CNPJ", "CNPJ/CPF", "CNPJ OU CPF"],
-        "nome_empreendimento": ["NOME DO EMPREENDIMENTO", "EMPREENDIMENTO", "DENOMINACAO DO EMPREENDIMENTO"],
+        # NB: sem 'EMPREENDIMENTO' puro - casava com a linha de CABEÇALHO do
+        # Quadro de áreas ('Empreendimento | Metragem (m²)') e o nome vircorrompido
+        "nome_empreendimento": ["NOME DO EMPREENDIMENTO", "DENOMINACAO DO EMPREENDIMENTO",
+                                "RAZAO SOCIAL DO EMPREENDIMENTO", "RAZAO SOCIAL"],
+        "bairro": ["BAIRRO"],
+        "cep": ["CEP"],
+        "telefone": ["TELEFONE"],
+        "email_empreendedor": ["E-MAIL", "EMAIL"],
+        "numero_endereco": ["NUMERO"],
         "ramo_atividade": ["RAMO DE ATIVIDADE", "RAMO DA ATIVIDADE", "ATIVIDADE", "DESCRICAO DA ATIVIDADE"],
         "codram": ["CODRAM", "CODIGO DO RAMO DE ATIVIDADE", "COD. RAMO", "CODIGO RAMO DE ATIVIDADE"],
         "porte": ["PORTE DO EMPREENDIMENTO", "PORTE"],
@@ -424,7 +432,13 @@ class FormularioParser:
                 while i < len(celulas):
                     cel = celulas[i]
                     rot = normalizar(cel).rstrip(" :;.,-")
-                    if cel.rstrip().endswith(":") and rot:
+                    # rótulo: célula terminando em ':' OU com anotação de
+                    # unidade/grau - ex.: 'Área total do imóvel (ha)',
+                    # 'Lat.(º)' (formulários reais variam)
+                    eh_rotulo = cel.rstrip().endswith(":") or bool(
+                        re.search(r"\((?:ha|m2|m²|º|graus)\)$", cel.strip(),
+                                  re.I))
+                    if eh_rotulo and rot:
                         valor = ""
                         if (i + 1 < len(celulas)
                                 and not celulas[i + 1].rstrip().endswith(":")):
@@ -552,6 +566,15 @@ class FormularioParser:
         try:
             resultado["nome_razao_social"] = self._buscar_valor(self.ROTULOS["nome_razao_social"])
             resultado["nome_fantasia"] = self._buscar_valor(self.ROTULOS["nome_fantasia"])
+            # seção 1 (tabelas quebradas com vários pares por linha): a 1ª
+            # ocorrência de cada rótulo é a do EMPREENDEDOR
+            resultado["endereco"] = self._buscar_valor(self.ROTULOS["endereco_empreendimento"])
+            resultado["numero"] = self._buscar_valor(self.ROTULOS["numero_endereco"])
+            resultado["bairro"] = self._buscar_valor(self.ROTULOS["bairro"])
+            resultado["cep"] = self._buscar_valor(self.ROTULOS["cep"])
+            resultado["municipio"] = self._buscar_valor(self.ROTULOS["municipio"])
+            resultado["telefone"] = self._buscar_valor(self.ROTULOS["telefone"])
+            resultado["email"] = self._buscar_valor(self.ROTULOS["email_empreendedor"])
             if not resultado["nome_razao_social"]:
                 self._registrar_falha("extrair_dados_empreendedor", "nome/razão social ausente")
 
@@ -698,6 +721,41 @@ class FormularioParser:
             self._registrar_falha("extrair_coordenadas", str(exc))
         return saida
 
+    def _area_para_ha(self, par: tuple, bruto: str) -> Optional[float]:
+        """Converte um par (número, unidade) de área para hectares."""
+        valor = para_float(par[0])
+        unidade = (par[1] or "").lower()
+        if not unidade and re.search(r"M\s*2?\b|M\s*[²²]", normalizar(bruto)):
+            unidade = "m2"
+        if not unidade:
+            unidade = "ha"
+        if valor is not None and unidade in ("m2", "m²", "m\xb2"):
+            valor = round(valor / 10000.0, 4)
+        return valor
+
+    def _extrair_area_total_sem_intervencao(self) -> Optional[float]:
+        """Área TOTAL por rótulo EXPLÍCITO, ignorando rótulos de intervenção
+        ('Área total de intervenção' NÃO é a área total do imóvel)."""
+        chaves = [normalizar(c).rstrip(" :;.,-")
+                  for c in self.ROTULOS["area_total"]]
+        for k, v in self._pares_rotulo_valor:
+            if "INTERVENCAO" in k or not (v or "").strip():
+                continue
+            if any(k == c or (len(c) >= 6 and c in k) for c in chaves):
+                m = self.REGEX["area"].search(v)
+                if m:
+                    return self._area_para_ha((m.group(1), m.group(2)), v)
+        return None
+
+    def _area_do_quadro(self) -> Optional[float]:
+        """Área TOTAL no Quadro de áreas (seção 4.2): linha 'Total' (m²) -> ha."""
+        for k, v in self._pares_rotulo_valor:
+            if k == "TOTAL":
+                m = self.REGEX["area"].search(v or "")
+                if m:
+                    return self._area_para_ha((m.group(1), m.group(2)), v)
+        return None
+
     def _extrair_area(self, chaves: list[str]) -> Optional[float]:
         """Extrai um valor de área em hectares, convertendo m² quando necessário."""
         bruto = self._buscar_valor(chaves)
@@ -796,14 +854,44 @@ class FormularioParser:
             if resultado["potencial_poluidor"] is None:
                 self._registrar_falha("extrair_dados_empreendimento", "potencial poluidor ausente")
 
-            resultado["area_total_ha"] = self._extrair_area(self.ROTULOS["area_total"])
-            resultado["area_util_ha"] = self._extrair_area(self.ROTULOS["area_util"])
-            resultado["area_intervencao_ha"] = resultado["area_util_ha"]
+            # Célula real: 'Área total de intervenção: 1.783,75m² (área útil
+            # total: 3.245,49)' - intervenção = PRIMEIRO número da célula;
+            # útil = número do parêntese ('área útil total: ...'); TOTAL =
+            # Quadro de áreas (4.2, linha 'Total', em m²) quando houver.
+            # NUNCA confundir as três (JSON compilado errado!).
+            bruto_interv = self._buscar_valor(self.ROTULOS["area_util"])
+            if bruto_interv:
+                areas_celula = self.REGEX["area"].findall(bruto_interv)
+                if areas_celula:
+                    resultado["area_intervencao_ha"] = self._area_para_ha(
+                        areas_celula[0], bruto_interv)
+                m_util = re.search(r"[uú]til[^:]{0,25}:\s*([\d.]+,?\d*)",
+                                   bruto_interv, re.I)
+                if m_util:
+                    resultado["area_util_ha"] = self._area_para_ha(
+                        (m_util.group(1), "m2"), bruto_interv)
+                else:
+                    resultado["area_util_ha"] = resultado["area_intervencao_ha"]
+                # precedência da área TOTAL: rótulo EXPLÍPRICO de área total
+                # (sem 'intervenção' no rótulo) > Quadro de áreas (4.2) > útil
+                resultado["area_total_ha"] = (
+                    self._extrair_area_total_sem_intervencao()
+                    or self._area_do_quadro()
+                    or resultado["area_util_ha"])
+            else:
+                resultado["area_total_ha"] = self._extrair_area(self.ROTULOS["area_total"])
+                resultado["area_util_ha"] = self._extrair_area(self.ROTULOS["area_util"])
+                resultado["area_intervencao_ha"] = resultado["area_util_ha"]
 
             matricula = self._buscar_valor(self.ROTULOS["matricula_imovel"], self.REGEX["matricula"])
             if matricula:
                 achou = self.REGEX["matricula"].search(matricula)
-                resultado["matricula_imovel"] = achou.group(1).strip(" .-") if achou else matricula.strip(" .-")
+                valor = achou.group(1).strip(" .-") if achou else matricula.strip(" .-")
+                # a célula pode trazer a frase inteira ('Matrícula nº 33.120
+                # do Cartório...'): o JSON leva SOMENTE o número
+                m_num = re.search(r"\d{1,3}(?:\.\d{3})+(?:\s*-\s*\d+)?|\d{4,8}",
+                                  valor)
+                resultado["matricula_imovel"] = m_num.group(0) if m_num else valor
 
             # 'Endereço' e 'Município' da seção 2 vêm DEPOIS do CODRAM (a
             # seção 1 do EMPREENDEDOR também tem Endereço/Município próprios)
@@ -874,6 +962,19 @@ class FormularioParser:
             resultado["registro_crea"] = self._buscar_valor(self.ROTULOS["registro_crea"])
             if resultado["registro_crea"]:
                 resultado["registro_crea"] = re.split(r"\s*[-–|]\s*", resultado["registro_crea"])[0].strip()
+
+            # seção '8. RESPONSÁVEL PELO LICENCIAMENTO' de tabelas quebradas:
+            # o nome fica no par 'Nome:' ADJACENTE ao par do nº da ART
+            if not resultado["nome"]:
+                for idx, (rot, val) in enumerate(self._pares_rotulo_valor):
+                    if rot.startswith("ART") and re.fullmatch(
+                            r"[\d./\-]{5,}", (val or "").strip()):
+                        for j in range(idx - 1, max(idx - 6, -1), -1):
+                            rot_j, val_j = self._pares_rotulo_valor[j]
+                            if rot_j == "NOME" and len((val_j or "").strip()) >= 4:
+                                resultado["nome"] = val_j.strip()
+                                break
+                        break
         except Exception as exc:  # noqa: BLE001
             self._registrar_falha("extrair_responsavel_tecnico", str(exc))
         return resultado
