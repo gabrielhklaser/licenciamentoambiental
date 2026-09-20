@@ -32,6 +32,8 @@ from licenciamento.auditor_tecnico import AuditorTecnico
 from licenciamento.calibracao import Calibracao
 from licenciamento.esquemas_tecnicos import StatusValidacao
 from licenciamento.gerador_oficios import GeradorOficios
+from licenciamento.seguranca import (attr_html, md_seguro,
+                                     nome_arquivo_seguro, sufixo_seguro)
 from licenciamento.compilador_parecer import (compilar_texto_parecer,
                                               exportar_docx, exportar_pdf)
 from licenciamento.parser_formulario import FormularioParser
@@ -156,14 +158,17 @@ def aplicar_tema(escuro: bool) -> None:
 def link_download(bytes_conteudo: bytes, nome_arquivo: str,
                   mime: str, rotulo: str) -> str:
     """LINK DE DOWNLOAD data-URI (à prova de proxy): o conteúdo viaja dentro
-    da própria página, então SEMPRE baixa no navegador."""
+    da própria página, então SEMPRE baixa no navegador. BLINDADO (skill
+    security-audit): nome passado por slug seguro e TODOS os atributos
+    escapados — anti quebra de atributo/injeção de evento."""
     import base64 as _b64
     payload = _b64.b64encode(bytes_conteudo).decode("ascii")
-    return ('<a download="' + nome_arquivo + '" href="data:' + mime
+    return ('<a download="' + nome_arquivo_seguro(nome_arquivo)
+            + '" href="data:' + attr_html(mime)
             + ";base64," + payload + '" style="display:inline-block;'
             'padding:6px 10px;border:1px solid var(--c-border, #ccc);'
             'border-radius:8px;text-decoration:none;font-size:.9rem">'
-            + rotulo + "</a>")
+            + attr_html(rotulo) + "</a>")
 
 
 def cabecalho_institucional(subtitulo: str) -> None:
@@ -459,7 +464,7 @@ def salvar_entrada_real(formularios: list, dados: dict) -> None:
         pasta.mkdir(exist_ok=True)
         carimbo = datetime.now().strftime("%Y%m%d_%H%M%S")
         for i, form in enumerate(formularios[:3]):
-            sufixo = Path(form.name).suffix.lower() or ".html"
+            sufixo = sufixo_seguro(Path(form.name).suffix)  # anti traversal
             (pasta / f"{carimbo}_{i}_formulario{sufixo}").write_bytes(
                 form.getvalue())
         if dados:
@@ -655,7 +660,7 @@ def pagina_analise() -> None:
         f"**🟡 {resumo.get('PENDENTE', 0)} com pendência(s)** · "
         f"**❌ {resumo.get('NAO_APRESENTADO', 0)} não apresentado(s)** "
         f"— de {total} exigência(s) para a licença "
-        f"**{pleito.get('tipo_licenca') or '—'}**")
+        f"**{md_seguro(pleito.get('tipo_licenca') or '—')}**")
 
     if quadro:
         linhas_df = [{
@@ -698,12 +703,14 @@ def pagina_analise() -> None:
                                       kv[0]))
     for nome, analise in por_nome:
         emoji = emoji_status_tecnico(analise.status)
-        cab = (f"{emoji} {nome} · {analise.norma_tr or 'Documento'} · "
+        cab = (f"{emoji} {md_seguro(nome)} · "
+               f"{md_seguro(analise.norma_tr or 'Documento')} · "
                f"**{analise.status.value}**")
         with st.container(border=True):
             st.markdown(cab)
             if analise.itens_reprovados:
-                st.error("\n".join(f"**✗** {item}" for item in analise.itens_reprovados))
+                st.error("\n".join(f"**✗** {md_seguro(item)}"
+                                   for item in analise.itens_reprovados))
             metricas = analise.metricas or {}
             if metricas.get("data_emissao"):
                 st.markdown(
@@ -713,8 +720,9 @@ def pagina_analise() -> None:
                     f"{'**dentro**' if analise.status.value == 'CONFORME' else '**fora**'} "
                     f"do prazo de {metricas.get('prazo_validade_dias')} dias")
             if analise.trecho_referencia:
-                st.markdown(f"> 📄 *Trecho do final do documento:* "
-                            f"\"{analise.trecho_referencia}\"")
+                st.markdown("> 📄 *Trecho do final do documento:* "
+                            "\"" + md_seguro(analise.trecho_referencia)
+                            + "\"")
             if nome in (processo.get("imagens") or {}):
                 with st.expander("🖼️ Ver imagem anexada (conferência manual)"):
                     st.image(processo["imagens"][nome], width="stretch")
@@ -729,7 +737,8 @@ def pagina_analise() -> None:
             st.info("Nenhum laudo (.pdf/.txt) submetido para auditoria técnica.")
         for resultado in tecnicos:
             emoji = emoji_status_tecnico(resultado.status)
-            cab = (f"{emoji} {resultado.documento_analisado} · {resultado.norma_tr} · "
+            cab = (f"{emoji} {md_seguro(resultado.documento_analisado)} · "
+                   f"{md_seguro(resultado.norma_tr)} · "
                    f"**{resultado.status.value}**")
             with st.container(border=True):
                 st.markdown(cab)
@@ -742,10 +751,13 @@ def pagina_analise() -> None:
                            + (" · TR confirmado pelo título do documento"
                               if _tt else ""))
                 if resultado.itens_reprovados:
-                    st.error("\n".join(f"**✗** {item}" for item in resultado.itens_reprovados))
+                    st.error("\n".join(
+                        f"**✗** {md_seguro(item)}"
+                        for item in resultado.itens_reprovados))
                 if resultado.trecho_referencia:
-                    st.markdown(f"> 📄 *Trecho de referência do laudo:* "
-                                f"\"{resultado.trecho_referencia}\"")
+                    st.markdown("> 📄 *Trecho de referência do laudo:* "
+                                "\"" + md_seguro(resultado.trecho_referencia)
+                                + "\"")
                 with st.expander("Ver métricas extraídas"):
                     st.json(resultado.metricas)
 
@@ -760,12 +772,13 @@ def pagina_analise() -> None:
                     f"documentos OK · bloqueios: "
                     f"**{len(admin.get('bloqueios') or [])}**")
         for bloqueio in admin.get("bloqueios") or []:
-            st.error(f"🚫 {bloqueio}")
+            st.error("🚫 " + md_seguro(bloqueio))
         for pend in admin.get("documentos_pendentes") or []:
             if isinstance(pend, dict):
-                st.warning(f"🟡 {pend.get('documento')} — {pend.get('justificativa', '')}")
+                st.warning(f"🟡 {md_seguro(pend.get('documento'))} — "
+                           f"{md_seguro(pend.get('justificativa', ''))}")
             else:
-                st.warning(f"🟡 {pend}")
+                st.warning("🟡 " + md_seguro(pend))
         # Reconhecimento inteligente: documento identificado pelo CONTEÚDO ou
         # pelo APRENDIZADO (o nome do arquivo não casou direto)
         for exigido, origem in (admin.get("origem_ok") or {}).items():

@@ -1,3 +1,34 @@
+## AUDITORIA DE SEGURANÇA — skills security-audit + senior-security
+
+**Arquivos:** `licenciamento/seguranca.py` (NOVO), `app.py` (9 pontos
+blindados + link_download + salvar_entrada_real), `licenciamento/
+auditor_sistema.py` (+verificar_seguranca, prefixo SEC-, na bateria),
+`tests/test_pipeline.py` (+1 teste, 121P), `requirements.txt`
+(+setuptools>=83), `SEGURANCA.md` (NOVO — laudo completo),
+`.claude/skills/security-audit/SKILL.md` e
+`.claude/skills/senior-security/SKILL.md` (NOVOS — skills do Drive
+instaladas LOCAL, sem credenciais).
+
+**O quê/por quê:** pedido do usuário — instalar as skills de segurança dos
+2 links do Drive, revisar arquivos e scripts e APLICAR as correções
+necessárias. Corrigido: (1) XSS armazenado — todo texto derivado de
+documentos enviados (trecho, nome de arquivo, itens, justificativas, tipo
+do parser) agora passa por md_seguro antes de st.markdown/error/warning;
+(2) path traversal — sufixo de upload via sufixo_seguro; (3) quebra de
+atributo HTML — link_download com nome_arquivo_seguro + attr_html;
+(4) 6 CVEs do setuptools (pip-audit) — >=83.0.0 + piso no requirements.
+Documentado/aceito: XSRF/CORS off (exigência do proxy do preview — reverter
+em produção), sem login (SSO em produção), LLM externo opt-in (LGPD).
+Camada SEC- permanente no auditor detecta regressão de tudo isso.
+
+**Como reverter:** `git revert <hash deste commit>` (skills são aditivas).
+
+**Estado:** 121 testes OK ×2; main.py 0; auditor --rapida 0 achados (SEC
+limpa); pip-audit "No known vulnerabilities found"; regressão simulada das
+5 classes detectada 100% pelo SEC.
+
+---
+
 ## REWORK — Parecer como TEXTO editável + exportação .docx/.pdf
 
 **Arquivos:** `licenciamento/compilador_parecer.py` (NOVO), `app.py` (bloco

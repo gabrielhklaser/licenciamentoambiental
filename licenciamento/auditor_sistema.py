@@ -111,6 +111,7 @@ class AuditorSistema:
             ("PLE", self.verificar_pleitos_e_taxas),
             ("AMB", self.verificar_ambiente),
             ("CONF", self.verificar_conferencias_documentais),
+            ("SEG", self.verificar_seguranca),
             ("APP", self.verificar_integracao_app),
             ("HIG", self.verificar_higiene_arquivos),
         ]
@@ -619,6 +620,104 @@ class AuditorSistema:
                               descricao="Falha ao executar as conferências "
                                         "funcionais de ART/projeto/CNPJ.",
                               evidencia=str(exc)[:300], correcao="manual"))
+        return erros
+
+    # ==================================================================
+    # SEGURANÇA (skills security-audit + senior-security) — garantias
+    # estáticas anti-regressão: sanitização anti-XSS, execução dinâmica
+    # proibida e segredos versionados.
+    # ==================================================================
+    RE_SEGREDO = re.compile(
+        r"(sk-[A-Za-z0-9_\-]{16,}|ghp_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}"
+        r"|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----)")
+
+    def verificar_seguranca(self) -> list[Erro]:
+        erros: list[Erro] = []
+        app_py = self.raiz / "app.py"
+        linhas = (app_py.read_text(encoding="utf-8", errors="replace")
+                  .splitlines() if app_py.is_file() else [])
+
+        def janela(i: int, n: int = 2) -> str:
+            return "\n".join(linhas[i:i + n])
+
+        # SEC-XSS: TODO texto derivado de documento renderizado em markdown
+        # passa por md_seguro(...) (st.markdown/st.error/st.warning
+        # interpretam markdown/HTML — injeção via conteúdo do upload)
+        for i, ln in enumerate(linhas):
+            if "st.markdown" in ln and ("> 📄" in ln or "> 📄" in ln):
+                if "md_seguro(" not in janela(i, 2):
+                    erros.append(Erro(
+                        id="SEC-XSS-TRECHO", severidade="alta",
+                        componente="app.py",
+                        descricao="Trecho de documento renderizado em "
+                                  "markdown SEM md_seguro (XSS armazenado).",
+                        evidencia=ln.strip()[:200],
+                        correcao="Envolver com md_seguro(...) — ver "
+                                 "licenciamento/seguranca.py (manual)."))
+            if "documento_analisado" in ln and "f\"" in ln:
+                if "md_seguro(" not in janela(i, 2):
+                    erros.append(Erro(
+                        id="SEC-XSS-NOME-DOC", severidade="alta",
+                        componente="app.py",
+                        descricao="Nome de arquivo enviado pelo usuário "
+                                  "renderizado em markdown sem sanitizar.",
+                        evidencia=ln.strip()[:200],
+                        correcao="Envolver com md_seguro(...) (manual)."))
+            if "itens_reprovados" in ln and "st.error" in janela(i, 4):
+                if "md_seguro(" not in janela(i, 4):
+                    erros.append(Erro(
+                        id="SEC-XSS-ITENS", severidade="alta",
+                        componente="app.py",
+                        descricao="Itens de não conformidade (texto do "
+                                  "laudo) em st.error sem md_seguro.",
+                        evidencia=ln.strip()[:200],
+                        correcao="Envolver com md_seguro(...) (manual)."))
+            if "suffix.lower() or" in ln:
+                erros.append(Erro(
+                    id="SEC-SUFFIX", severidade="media",
+                    componente="app.py",
+                    descricao="Sufixo de arquivo NÃO CONFIÁVEL usado direto "
+                              "em caminho de disco (path traversal).",
+                    evidencia=ln.strip()[:200],
+                    correcao="Usar sufixo_seguro(...) — ver "
+                             "licenciamento/seguranca.py (manual)."))
+
+        # SEC-EXEC: execução dinâmica proibida no código de produção
+        for alvo in sorted((self.raiz / "licenciamento").glob("*.py")) + [
+                self.raiz / "app.py", self.raiz / "main.py"]:
+            if not alvo.is_file():
+                continue
+            conteudo = alvo.read_text(encoding="utf-8", errors="replace")
+            for padrao, rotulo in (
+                    (r"\beval\s*\(", "chamada a eval dinâmico"),
+                    (r"\bexec\s*\(", "chamada a exec dinâmico"),
+                    (r"\bshell\b\s*=\s*True",
+                     "subprocesso com shell ativo")):
+                if re.search(padrao, conteudo):
+                    erros.append(Erro(
+                        id=f"SEC-EXEC-{alvo.stem}".upper(), severidade="alta",
+                        componente=str(alvo.relative_to(self.raiz)),
+                        descricao=f"Execução dinâmica insegura ({rotulo}).",
+                        evidencia=padrao,
+                        correcao="Remover a execução dinâmica (manual)."))
+
+        # SEGREDO: nenhuma credencial versionada (py/toml/env do repositório)
+        for alvo in sorted(self.raiz.rglob("*")):
+            if not alvo.is_file() or ".venv" in alvo.parts or \
+                    ".git" in alvo.parts:
+                continue
+            if alvo.suffix.lower() not in (".py", ".toml", ".env", ".cfg",
+                                           ".ini", ".json", ".yml", ".yaml"):
+                continue
+            if self.RE_SEGREDO.search(
+                    alvo.read_text(encoding="utf-8", errors="replace")):
+                erros.append(Erro(
+                    id="SEGREDO-VERSIONADO", severidade="critica",
+                    componente=str(alvo.relative_to(self.raiz)),
+                    descricao="Padrão de credencial/chave privada versionado.",
+                    evidencia=alvo.name,
+                    correcao="Remover o segredo do repositório e revogar a "
+                             "chave (manual)."))
         return erros
 
     def verificar_higiene_arquivos(self) -> list[Erro]:

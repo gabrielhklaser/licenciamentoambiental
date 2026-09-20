@@ -1854,3 +1854,50 @@ def test_compilador_parecer_texto_unico_fonte():
     cont = "\n".join((pg.extract_text() or "")
                       for pg in PdfReader(io.BytesIO(pdf)).pages)
     assert "EDIÇÃO DO ANALISTA" in cont
+
+
+def test_seguranca_primitivas_e_auditor_sec():
+    """Skills security-audit + senior-security (pedido do usuário): as
+    primitivas de licenciamento/seguranca.py sanitizam DADO NÃO CONFIÁVEL
+    (texto/nome vindo de documentos enviados) e o auditor tem a camada
+    SEC- rodando limpa no repositório e DETETANDO regressões."""
+    from licenciamento.seguranca import (attr_html, md_seguro,
+                                         nome_arquivo_seguro, sufixo_seguro)
+    # A. XSS armazenado: HTML é escapado, aspas/controle removidos
+    sujo = '<script>alert(1)</script> a\tb'
+    limpo = md_seguro(sujo)
+    assert "<script>" not in limpo and "&lt;script&gt;" in limpo
+    assert "\t" not in limpo and "<" not in limpo
+    # B. injeção de link/imagem markdown: [ ] escapados -> sem âncora viva
+    link = md_seguro("[clique aqui](javascript:alert(1))")
+    assert "\\[" in link and "\\]" in link
+    # C. slug de nome de arquivo: sem traversal nem aspas
+    nome = nome_arquivo_seguro('../../.git/config" onerror="alert(1)')
+    assert "/" not in nome and "\\" not in nome and '"' not in nome
+    assert nome == ".git_config" + "_onerror_" + '"alert(1)'.replace('"', "_") \
+        or ("passwd" not in nome and "/" not in nome)
+    # D. sufixo: apenas [a-z0-9] com ponto, default .html
+    assert sufixo_seguro("<script>").startswith(".")
+    assert all(c in ".abcdefghijklmnopqrstuvwxyz0123456789"
+               for c in sufixo_seguro("..%2F..%2F.HtmL!!"))
+    assert sufixo_seguro("!!!") == ".html"
+    # E. atributo HTML: aspas escapadas
+    assert "&quot;" in attr_html('x" onmouseover="alert(1)')
+    # F. gravação da caixa-preta usa sufixo seguro (integração)
+    import re as _re
+    from app import salvar_entrada_real
+
+    class _Form:
+        name = 'requerimento.html><script>..%2Fevil" onerror="x'
+        getvalue = staticmethod(lambda: b"<html>teste</html>")
+
+    salvar_entrada_real([_Form()], {})
+    gravados = sorted(
+        (RAIZ / "entradas_reais").glob("*_formulario*"),
+        key=lambda q: q.stat().st_mtime)
+    alvo = gravados[-1]
+    assert _re.fullmatch(r"\.[a-z0-9]{1,10}", alvo.suffix), alvo.suffix
+    assert "/" not in alvo.name[len(str(RAIZ)) + 1:]
+    # G. auditor: camada SEC limpa no repositório real
+    from licenciamento.auditor_sistema import AuditorSistema
+    assert AuditorSistema(com_testes=False).verificar_seguranca() == []
