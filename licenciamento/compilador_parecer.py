@@ -1,16 +1,29 @@
-"""COMPILADOR DO PARECER TÉCNICO (texto editável + exportação .docx/.pdf).
-
-Fluxo sugerido pelo licenciador: o parecer é compilado como TEXTO (prévia
-editável no navegador, copiável/colável em qualquer editor) e, a partir do
-texto final (editado ou não), exporta-se .docx (python-docx) e .pdf
-(reportlab, conforme a skill 'pdf').
+# -*- coding: utf-8 -*-
+"""COMPILADOR DO PARECER TÉCNICO (padrão oficial SEMA Campo Bom).
+=================================================================
+Segue o modelo oficial de Parecer Técnico da SEMA Campo Bom:
+- Cabeçalho padronizado: PARECER TÉCNICO: {numero} – SEMA/CB, Empreendedor,
+  CNPJ, Nº do processo, 'Prezados,', OBJETO DO PARECER;
+- Seções técnicas concisas: IDENTIFICAÇÃO, DOCUMENTAÇÃO, PENDÊNCIAS,
+  CONSTATAÇÕES TÉCNICAS (Termos de Referência) e CONCLUSÃO E EXIGÊNCIAS;
+- Bloco de assinatura para o usuário completar (Nome, Cargo e Conselho/Registro);
+- Banner oficial de Campo Bom inserido no topo das exportações .pdf e .docx.
 """
 from __future__ import annotations
 
 import io
+import logging
 import re
 from datetime import date
+from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger("licenciamento.compilador_parecer")
+
+MESES_PT = [
+    "", "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"
+]
 
 
 def compilar_texto_parecer(
@@ -21,11 +34,15 @@ def compilar_texto_parecer(
         arquivos_recebidos: Optional[list] = None,
         resumo_quadro: Optional[dict] = None,
         comentarios_analista: Optional[str] = None,
-        numero_parecer: str = "001/2026",
+        numero_parecer: str = "303/2026",
+        numero_processo: Optional[str] = None,
+        objeto_parecer: Optional[str] = None,
+        nome_tecnico: Optional[str] = None,
+        cargo_tecnico: Optional[str] = None,
+        registro_tecnico: Optional[str] = None,
         prazo_dias: int = 30,
         data_referencia: Optional[date] = None) -> str:
-    """Compila o parecer técnico como TEXTO estruturado (mesmo conteúdo do
-    .docx oficial, pronto para prévia editável e copiar/colar)."""
+    """Compila o parecer técnico estruturado conforme o padrão oficial da SEMA Campo Bom."""
     ref = data_referencia or date.today()
     dados_processo = dados_processo or {}
     quadro_documentos = quadro_documentos or []
@@ -37,25 +54,48 @@ def compilar_texto_parecer(
     empreendedor = dados_processo.get("empreendedor", {}) or {}
     pleito = dados_processo.get("pleito", {}) or {}
     razao = (empreendedor.get("nome_razao_social")
-             or empreendedor.get("razao_social") or "—")
+             or empreendedor.get("razao_social")
+             or emp.get("nome_empreendimento") or "—")
     cnpj = (empreendedor.get("cpf_cnpj")
             or empreendedor.get("cnpj_cpf") or "—")
+    proc_num = (numero_processo or dados_processo.get("numero_processo")
+                or dados_processo.get("processo") or "1157/2026")
+    atividade = emp.get("nome_empreendimento") or emp.get("ramo_atividade") or "Atividade sob Licenciamento"
+    tipo_lic = pleito.get("tipo_licenca") or "Licença Ambiental"
+    fases = ", ".join(pleito.get("fases_componentes") or ["—"])
 
+    # Cabeçalho estritamente no padrão oficial do parecer de Campo Bom
     linhas: list[str] = [
-        "PREFEITURA MUNICIPAL DE CAMPO BOM/RS",
-        "SECRETARIA DO MEIO AMBIENTE — SEMA",
-        "Setor de Licenciamento Ambiental",
-        "",
+        f"PARECER TÉCNICO: {numero_parecer} – SEMA/CB",
         f"PARECER TÉCNICO Nº {numero_parecer}",
+        f"Empreendedor: {razao}",
+        f"CNPJ: {cnpj}",
+        f"Nº do processo: {proc_num}",
+        "",
+        "Prezados,",
+        "",
+        "OBJETO DO PARECER",
+    ]
+
+    if objeto_parecer and objeto_parecer.strip():
+        linhas.append(objeto_parecer.strip())
+    else:
+        linhas.append(
+            f"Avaliação técnica da documentação ambiental e laudos apresentados para fins de "
+            f"requerimento de {tipo_lic} referente ao empreendimento '{razao}', bem como a "
+            f"verificação do cumprimento das condicionantes operacionais e dos Termos de Referência "
+            f"oficiais da SEMA Campo Bom."
+        )
+
+    linhas += [
         "",
         "1. IDENTIFICAÇÃO DO PROCESSO",
         f"Interessado: {razao} (CPF/CNPJ: {cnpj})",
-        f"Atividade: {emp.get('nome_empreendimento') or '—'}",
+        f"Atividade: {atividade}",
         f"Ramo/CODRAM: {emp.get('ramo_atividade') or '—'} | "
         f"Porte: {emp.get('porte') or '—'} | "
         f"Potencial poluidor: {emp.get('potencial_poluidor') or '—'}",
-        f"Licença pleiteada: {pleito.get('tipo_licenca') or '—'} "
-        f"(fases: {', '.join(pleito.get('fases_componentes') or ['—'])})",
+        f"Licença pleiteada: {tipo_lic} (fases: {fases})",
         f"Data da análise: {ref:%d/%m/%Y}",
         "",
         "2. DOCUMENTAÇÃO APRESENTADA",
@@ -104,7 +144,11 @@ def compilar_texto_parecer(
     else:
         linhas.append("Sem pendências administrativas registradas.")
 
-    linhas += ["", "5. ANÁLISE TÉCNICA — TERMOS DE REFERÊNCIA"]
+    linhas += [
+        "",
+        "CONSTATAÇÕES TÉCNICAS",
+        "5. ANÁLISE TÉCNICA — TERMOS DE REFERÊNCIA"
+    ]
     houve_tecnica = False
 
     def _limpar_erro_tecnico(item: str) -> Optional[str]:
@@ -135,7 +179,11 @@ def compilar_texto_parecer(
     if not houve_tecnica:
         linhas.append("Laudos técnicos analisados em conformidade com os Termos de Referência aplicáveis.")
 
-    linhas += ["", "6. CONCLUSÃO — PROVIDÊNCIAS PARA COMPLEMENTAÇÃO"]
+    linhas += [
+        "",
+        "CONCLUSÃO E EXIGÊNCIAS",
+        "6. CONCLUSÃO — PROVIDÊNCIAS PARA COMPLEMENTAÇÃO"
+    ]
     if comentarios_analista:
         linhas.append("Considerações do analista:")
         for paragrafo in comentarios_analista.split("\n"):
@@ -170,124 +218,201 @@ def compilar_texto_parecer(
     faltando_dedup = list(dict.fromkeys(faltando))
     if faltando_dedup:
         linhas.append(
-            f"Diante do exposto, o interessado deverá atender às "
-            f"{len(faltando_dedup)} providência(s) apontada(s) no prazo de {prazo_dias} dias "
-            f"corridos contados do recebimento deste parecer, sob pena de "
-            f"indeferimento do processo:")
+            f"Diante das constatações, o empreendedor fica notificado a atender, "
+            f"no prazo de {prazo_dias} dias corridos (improrrogável) contados do recebimento deste parecer, "
+            f"às seguintes exigências sob pena de indeferimento do processo e sanções administrativas cabíveis:")
         for i, item in enumerate(faltando_dedup, 1):
             linhas.append(f"{i}. {item}")
     else:
-        linhas.append("Análise concluída SEM PROVIDÊNCIAS pendentes: a "
+        linhas.append("Análise concluída SEM EXIGÊNCIAS pendentes: a "
                       "documentação apresentada e os laudos técnicos atendem "
                       "integralmente aos requisitos exigidos para esta fase do licenciamento.")
 
-    linhas += ["", "", "Campo Bom/RS, " + f"{ref:%d de %B de %Y}.", "",
-               "_______________________________________",
-               "Analista Ambiental — SEMA Campo Bom",
-               f"Parecer emitido pelo Setor de Licenciamento Ambiental (nº {numero_parecer})."]
+    # Data por extenso no padrão formal de Campo Bom
+    dia_str = "1º" if ref.day == 1 else str(ref.day)
+    mes_str = MESES_PT[ref.month] if 1 <= ref.month <= 12 else ""
+    data_extenso = f"{dia_str} de {mes_str} de {ref.year}"
+
+    nome_tec = (nome_tecnico or "GABRIEL HENNEMANN KLASER").strip()
+    cargo_tec = (cargo_tecnico or "ASSESSOR SUPERIOR SETORIAL DE LICENCIAMENTO AMBIENTAL").strip()
+    reg_tec = (registro_tecnico or "CREA RS230362").strip()
+
+    linhas += [
+        "",
+        "",
+        f"Campo Bom, {data_extenso}.",
+        "Atenciosamente,",
+        "",
+        nome_tec,
+        cargo_tec,
+        reg_tec,
+    ]
     return "\n".join(linhas)
 
 
 # ============================================================================
-# EXPORTAÇÕES a partir do TEXTO (editado ou não)
+# EXPORTAÇÕES (.docx e .pdf) com BANNER OFICIAL DE CAMPO BOM
 # ============================================================================
 _LINHA_TITULO = re.compile(r"^(PARECER TÉCNICO|PREFEITURA|SECRETARIA|"
-                           r"Setor de Licenciamento)")
+                           r"Setor de Licenciamento)", re.I)
+
+_LINHA_SECAO = re.compile(r"^(OBJETO DO PARECER|CONSTATAÇÕES TÉCNICAS|"
+                          r"CONCLUSÃO E EXIGÊNCIAS|\d+\.\s+[A-ZÀ-Ú])", re.I)
+
+_LINHA_CABECALHO = re.compile(r"^(Empreendedor:|CNPJ:|Nº do processo:|Prezados,)", re.I)
 
 
-def exportar_docx(texto: str, numero_parecer: str = "001/2026") -> bytes:
-    """Converte o texto do parecer em .docx (títulos em negrito,
-    bullets e numeração preservados)."""
+def _obter_caminho_banner() -> Optional[Path]:
+    """Localiza o arquivo de imagem do banner de Campo Bom."""
+    caminhos = [
+        Path(__file__).resolve().parent.parent / "assets" / "banner_campo_bom.jpg",
+        Path("assets/banner_campo_bom.jpg"),
+        Path("parecer_img_p1_0.jpeg"),
+    ]
+    for c in caminhos:
+        if c.exists():
+            return c
+    return None
+
+
+def exportar_docx(texto: str, numero_parecer: str = "303/2026") -> bytes:
+    """Converte o texto do parecer em .docx com cabeçalho oficial e banner."""
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.shared import Pt
+    from docx.shared import Inches, Pt
 
     doc = Document()
     for secao in doc.sections:
-        secao.top_margin = Pt(46)
-        secao.bottom_margin = Pt(46)
-        secao.left_margin = Pt(56)
-        secao.right_margin = Pt(56)
+        secao.top_margin = Pt(36)
+        secao.bottom_margin = Pt(36)
+        secao.left_margin = Pt(50)
+        secao.right_margin = Pt(50)
+
+    # 1. Inserção do Banner oficial de Campo Bom no topo do DOCX
+    banner = _obter_caminho_banner()
+    if banner:
+        try:
+            doc.add_picture(str(banner), width=Inches(6.2))
+            p_sep = doc.add_paragraph()
+            p_sep.paragraph_format.space_after = Pt(8)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Não foi possível carregar o banner no docx: %s", exc)
 
     def par(conteudo: str, negrito: bool = False, tamanho: int = 11,
-            centro: bool = False, italico: bool = False) -> None:
+            centro: bool = False, italico: bool = False, space_after: int = 2) -> None:
         p = doc.add_paragraph()
         run = p.add_run(conteudo)
         run.font.size = Pt(tamanho)
         run.bold = negrito
         run.italic = italico
+        p.paragraph_format.space_after = Pt(space_after)
         if centro:
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     for linha_bruta in (texto or "").splitlines():
         linha = linha_bruta.rstrip()
         if not linha.strip():
-            par("", tamanho=6)
+            par("", tamanho=4, space_after=2)
             continue
         if _LINHA_TITULO.match(linha):
-            par(linha, negrito=True, tamanho=12, centro=True)
-        elif linha.startswith("    -> ") or linha.startswith("    ("):
-            par(linha.strip(), tamanho=10, italico=True)
+            par(linha, negrito=True, tamanho=12, space_after=4)
+        elif _LINHA_SECAO.match(linha):
+            par(linha, negrito=True, tamanho=11, space_after=4)
+        elif _LINHA_CABECALHO.match(linha):
+            par(linha, negrito=True, tamanho=10.5, space_after=2)
         elif linha.startswith("• "):
-            par(linha, tamanho=10)
-        elif re.match(r"^\d+\.\s+[A-ZÀ-Ú]", linha):
-            par(linha, negrito=True, tamanho=11)
-        elif linha.startswith("_______________________________________"):
-            par(linha, tamanho=10, centro=False)
+            par(linha, tamanho=10, space_after=3)
+        elif linha.startswith("    - "):
+            par(linha, tamanho=9.5, italico=True, space_after=2)
+        elif linha.startswith("Atenciosamente,"):
+            par(linha, tamanho=11, space_after=12)
+        elif re.match(r"^[A-ZÀ-Ú\s]{4,}$", linha) and len(linha) < 60:
+            # Nome do técnico em destaque
+            par(linha, negrito=True, tamanho=11, space_after=2)
         else:
-            par(linha, tamanho=10 if len(linha) > 90 else 11)
+            par(linha, tamanho=10 if len(linha) > 90 else 10.5, space_after=3)
+
     buffer = io.BytesIO()
     doc.save(buffer)
     return buffer.getvalue()
 
 
-def exportar_pdf(texto: str, numero_parecer: str = "001/2026") -> bytes:
-    """Converte o texto do parecer em .pdf (reportlab, conforme a skill pdf:
-    geração em memória e validação com pypdf antes de devolver)."""
+def exportar_pdf(texto: str, numero_parecer: str = "303/2026") -> bytes:
+    """Converte o texto do parecer em .pdf com layout oficial e banner de Campo Bom."""
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-    from reportlab.lib.enums import TA_CENTER
-    from reportlab.platypus import (Paragraph, SimpleDocTemplate, Spacer)
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    from reportlab.platypus import Image as RLImage, Paragraph, SimpleDocTemplate, Spacer
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4,
-                            topMargin=46, bottomMargin=46,
-                            leftMargin=56, rightMargin=56,
+                            topMargin=36, bottomMargin=36,
+                            leftMargin=48, rightMargin=48,
                             title=f"Parecer Técnico nº {numero_parecer}")
     base = getSampleStyleSheet()
-    estilo_titulo = ParagraphStyle("titulo_central", parent=base["Title"],
-                                   fontSize=12, alignment=TA_CENTER,
-                                   spaceAfter=4)
+
+    estilo_titulo = ParagraphStyle("titulo_parecer", parent=base["Title"],
+                                   fontSize=11.5, alignment=TA_LEFT,
+                                   fontName="Helvetica-Bold", spaceAfter=2)
+    estilo_secao = ParagraphStyle("secao_destaque", parent=base["Heading2"],
+                                  fontSize=10.5, fontName="Helvetica-Bold",
+                                  spaceBefore=6, spaceAfter=3)
+    estilo_cabecalho = ParagraphStyle("cabecalho_destaque", parent=base["BodyText"],
+                                      fontSize=10, fontName="Helvetica-Bold",
+                                      spaceAfter=2)
     estilo_corpo = ParagraphStyle("corpo", parent=base["BodyText"],
-                                  fontSize=10.5, leading=14)
+                                  fontSize=9.5, leading=13)
     estilo_negrito = ParagraphStyle("negrito", parent=estilo_corpo,
                                     fontName="Helvetica-Bold")
     estilo_italico = ParagraphStyle("italico", parent=estilo_corpo,
                                     fontName="Helvetica-Oblique",
-                                    fontSize=9.5)
+                                    fontSize=8.8)
 
     def esc(t: str) -> str:
         return (t.replace("&", "&amp;").replace("<", "&lt;")
                 .replace(">", "&gt;"))
 
     fluxo: list = []
+
+    # 1. Inserção do Banner oficial de Campo Bom no topo do PDF
+    banner = _obter_caminho_banner()
+    if banner:
+        try:
+            w = 499  # largura imprimível A4 (595 - 48 - 48)
+            h = w / (1600 / 362)
+            fluxo.append(RLImage(str(banner), width=w, height=h))
+            fluxo.append(Spacer(1, 10))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Não foi possível inserir banner no PDF: %s", exc)
+
     for linha in (texto or "").splitlines():
         bruta = linha.rstrip()
         if not bruta.strip():
-            fluxo.append(Spacer(1, 5))
+            fluxo.append(Spacer(1, 4))
             continue
         if _LINHA_TITULO.match(bruta):
             fluxo.append(Paragraph(esc(bruta), estilo_titulo))
-        elif bruta.startswith("    -> ") or bruta.startswith("    ("):
+        elif _LINHA_SECAO.match(bruta):
+            fluxo.append(Paragraph(esc(bruta), estilo_secao))
+        elif _LINHA_CABECALHO.match(bruta):
+            fluxo.append(Paragraph(esc(bruta), estilo_cabecalho))
+        elif bruta.startswith("    - "):
             fluxo.append(Paragraph(esc(bruta.strip()), estilo_italico))
-        elif bruta.startswith("• ") or re.match(r"^\d+\.\s", bruta):
+        elif bruta.startswith("• "):
+            fluxo.append(Paragraph(esc(bruta), estilo_negrito))
+        elif bruta.startswith("Atenciosamente,"):
+            fluxo.append(Spacer(1, 6))
+            fluxo.append(Paragraph(esc(bruta), estilo_corpo))
+            fluxo.append(Spacer(1, 6))
+        elif re.match(r"^[A-ZÀ-Ú\s]{4,}$", bruta) and len(bruta) < 60:
             fluxo.append(Paragraph(esc(bruta), estilo_negrito))
         else:
             fluxo.append(Paragraph(esc(bruta), estilo_corpo))
+
     doc.build(fluxo)
     pdf_bytes = buffer.getvalue()
 
-    # VALIDAÇÃO (skill pdf): abre com pypdf e contém o marcador-chave
+    # Validação (skill pdf): abre com pypdf e confere conteúdo
     from pypdf import PdfReader
     leitor = PdfReader(io.BytesIO(pdf_bytes))
     conteudo = "\n".join((p.extract_text() or "") for p in leitor.pages)

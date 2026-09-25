@@ -909,103 +909,141 @@ def pagina_analise() -> None:
     # --------------------------------------------------------------
     # PARECER TÉCNICO (botão final)
     # --------------------------------------------------------------
-    st.subheader("📄 Emissão do Parecer Técnico")
+    banner_path = RAIZ / "assets" / "banner_campo_bom.jpg"
+    if banner_path.exists():
+        st.image(str(banner_path), use_container_width=True)
+
+    st.subheader("📄 Emissão do Parecer Técnico — Padrão SEMA Campo Bom")
     st.markdown("O parecer consolida **o que falta para contemplar todos os "
                 "documentos referentes a esta licença** (exigências não "
                 "apresentadas, pendências por documento e não conformidades com "
-                "os TRs).")
+                "os TRs), formatado no **padrão oficial SEMA Campo Bom**.")
 
-    col_com, col_doc = st.columns([2, 1.4])
+    with st.expander("🏛️ Cabeçalho, Processo e Assinatura do Parecer (Padrão SEMA)", expanded=True):
+        c_h1, c_h2, c_h3 = st.columns(3)
+        with c_h1:
+            numero = st.text_input("Nº do parecer", value="001/2026", key="parecer_num")
+        with c_h2:
+            num_proc_padrao = (dados.get("numero_processo")
+                               or dados.get("processo")
+                               or "1157/2026")
+            numero_proc = st.text_input("Nº do processo", value=str(num_proc_padrao), key="parecer_proc")
+        with c_h3:
+            prazo = st.number_input("Prazo para complementação (dias)", min_value=5,
+                                    max_value=180, value=30, key="parecer_prazo")
+
+        c_s1, c_s2, c_s3 = st.columns(3)
+        with c_s1:
+            nome_tec = st.text_input("Técnico / Analista responsável",
+                                     value="GABRIEL HENNEMANN KLASER", key="parecer_nome_tec")
+        with c_s2:
+            cargo_tec = st.text_input("Cargo / Função",
+                                      value="ASSESSOR SUPERIOR SETORIAL DE LICENCIAMENTO AMBIENTAL",
+                                      key="parecer_cargo_tec")
+        with c_s3:
+            reg_tec = st.text_input("Registro profissional",
+                                    value="CREA RS230362", key="parecer_reg_tec")
+
+        objeto_custom = st.text_area(
+            "Objeto do parecer (opcional - deixe em branco para preenchimento automático)",
+            value="",
+            help="Descreva o objeto específico do parecer ou deixe em branco para utilizar a formulação padrão da SEMA.",
+            key="parecer_obj_custom")
+
+    col_com, col_btn = st.columns([2, 1.2])
     with col_com:
         comentarios = st.text_area(
-            "Comentários do analista (entram no parecer)", height=150,
+            "Comentários do analista (entram no parecer)", height=120,
             key="comentarios_parecer")
-        revisado = st.checkbox("Confirmo a conferência da análise acima")
-    with col_doc:
-        numero = st.text_input("Nº do parecer", value="001/2026")
-        prazo = st.number_input("Prazo para complementação (dias)", min_value=5,
-                                max_value=180, value=30)
-
+        revisado = st.checkbox("Confirmo a conferência da análise acima", key="parecer_conferido")
+    with col_btn:
+        st.write("")
+        st.write("")
         if revisado:
-            # 1) COMPILAR o parecer como TEXTO (prévia editável + copiar/colar)
-            col_a, col_b = st.columns([1.2, 2])
-            with col_a:
-                gerar = st.button("📝 Gerar parecer (texto editável)",
-                                  type="primary", width="stretch",
-                                  help="Compila o parecer para prévia "
-                                       "editável. Edite no campo abaixo, "
-                                       "copie/cole ou exporte .docx/.pdf.")
-            if gerar or st.session_state.get("parecer_texto") is None:
-                try:
-                    st.session_state["parecer_texto"] = \
-                        compilar_texto_parecer(
-                            dados_processo=dados,
-                            quadro_documentos=quadro,
-                            resultado_admin=admin,
-                            resultados_tecnicos=tecnicos,
-                            arquivos_recebidos=processo.get("arquivos") or [],
-                            resumo_quadro=resumo,
-                            comentarios_analista=comentarios or None,
-                            numero_parecer=numero,
-                            prazo_dias=int(prazo))
-                except Exception as exc:  # noqa: BLE001
-                    st.session_state["parecer_texto"] = None
-                    st.error(f"❌ Falha ao COMPILAR o parecer: {exc}")
-                    st.stop()
-
-            texto_final = st.session_state.get("parecer_texto") or ""
-            with st.expander("👁️ Prévia do parecer — EDITÁVEL antes de exportar",
-                             expanded=True):
-                st.caption("Edite livremente abaixo. Para levar a outro "
-                           "documento: selecione tudo (Ctrl+A) e copie "
-                           "(Ctrl+C). Ou exporte .docx/.pdf pelos botões.")
-                texto_final = st.text_area(
-                    "Texto do parecer (editável)", value=texto_final,
-                    height=640, key="parecer_texto_area",
-                    label_visibility="collapsed")
-
-            # 2) EXPORTAR .docx / .pdf a partir do texto (editado ou não)
-            nome_base = f"parecer_tecnico_{numero.replace('/', '-')}"
-            try:
-                bytes_docx = exportar_docx(texto_final, numero)
-                bytes_pdf = exportar_pdf(texto_final, numero)
-            except Exception as exc:  # noqa: BLE001
-                st.error(f"❌ Falha ao EXPORTAR o parecer: {exc}")
-                bytes_docx = bytes_pdf = None
-            if bytes_docx and bytes_pdf:
-                c_docx, c_pdf = st.columns(2)
-                with c_docx:
-                    st.download_button(
-                        label="⬇️ Baixar .docx", data=bytes_docx,
-                        file_name=nome_base + ".docx",
-                        mime="application/vnd.openxmlformats-officedocument."
-                             "wordprocessingml.document",
-                        type="primary", width="stretch", key="dl_parecer_docx")
-                    st.markdown(link_download(
-                        bytes_docx, nome_base + ".docx",
-                        "vnd.openxmlformats-officedocument."
-                        "wordprocessingml.document",
-                        "⬇️ .docx (link direto)"),
-                        unsafe_allow_html=True)
-                with c_pdf:
-                    st.download_button(
-                        label="⬇️ Baixar .pdf", data=bytes_pdf,
-                        file_name=nome_base + ".pdf", mime="application/pdf",
-                        width="stretch", key="dl_parecer_pdf")
-                    st.markdown(link_download(
-                        bytes_pdf, nome_base + ".pdf", "application/pdf",
-                        "⬇️ .pdf (link direto)"), unsafe_allow_html=True)
-                st.caption(f"Prévia: {len(texto_final.splitlines())} linhas · "
-                           f"docx {len(bytes_docx) // 1024} KB · pdf "
-                           f"{len(bytes_pdf) // 1024} KB · cópias em saidas/")
-                _pasta = Path("saidas")
-                _pasta.mkdir(exist_ok=True)
-                (_pasta / (nome_base + ".docx")).write_bytes(bytes_docx)
-                (_pasta / (nome_base + ".pdf")).write_bytes(bytes_pdf)
+            gerar = st.button("📝 Gerar parecer (texto editável)",
+                              type="primary", width="stretch",
+                              help="Compila o parecer para prévia "
+                                   "editável. Edite no campo abaixo, "
+                                   "copie/cole ou exporte .docx/.pdf.")
         else:
-            st.button("📄 Baixar Parecer Técnico (.docx)", disabled=True,
+            gerar = False
+            st.button("📄 Baixar Parecer Técnico (.docx / .pdf)", disabled=True,
                       width="stretch",
                       help="Marque a confirmação da conferência para liberar a emissão.")
+
+    if revisado:
+        if gerar or st.session_state.get("parecer_texto") is None:
+            try:
+                st.session_state["parecer_texto"] = \
+                    compilar_texto_parecer(
+                        dados_processo=dados,
+                        quadro_documentos=quadro,
+                        resultado_admin=admin,
+                        resultados_tecnicos=tecnicos,
+                        arquivos_recebidos=processo.get("arquivos") or [],
+                        resumo_quadro=resumo,
+                        comentarios_analista=comentarios or None,
+                        numero_parecer=numero,
+                        prazo_dias=int(prazo),
+                        numero_processo=numero_proc,
+                        objeto_parecer=objeto_custom or None,
+                        nome_tecnico=nome_tec or None,
+                        cargo_tecnico=cargo_tec or None,
+                        registro_tecnico=reg_tec or None)
+            except Exception as exc:  # noqa: BLE001
+                st.session_state["parecer_texto"] = None
+                st.error(f"❌ Falha ao COMPILAR o parecer: {exc}")
+                st.stop()
+
+        texto_final = st.session_state.get("parecer_texto") or ""
+        with st.expander("👁️ Prévia do parecer — EDITÁVEL antes de exportar",
+                         expanded=True):
+            st.caption("Edite livremente abaixo. Para levar a outro "
+                       "documento: selecione tudo (Ctrl+A) e copie "
+                       "(Ctrl+C). Ou exporte .docx/.pdf pelos botões.")
+            texto_final = st.text_area(
+                "Texto do parecer (editável)", value=texto_final,
+                height=520, key="parecer_texto_area",
+                label_visibility="collapsed")
+
+        # 2) EXPORTAR .docx / .pdf a partir do texto (editado ou não)
+        nome_base = f"parecer_tecnico_{numero.replace('/', '-')}"
+        try:
+            bytes_docx = exportar_docx(texto_final, numero)
+            bytes_pdf = exportar_pdf(texto_final, numero)
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"❌ Falha ao EXPORTAR o parecer: {exc}")
+            bytes_docx = bytes_pdf = None
+        if bytes_docx and bytes_pdf:
+            c_docx, c_pdf = st.columns(2)
+            with c_docx:
+                st.download_button(
+                    label="⬇️ Baixar .docx (Padrão SEMA com Banner)", data=bytes_docx,
+                    file_name=nome_base + ".docx",
+                    mime="application/vnd.openxmlformats-officedocument."
+                         "wordprocessingml.document",
+                    type="primary", width="stretch", key="dl_parecer_docx")
+                st.markdown(link_download(
+                    bytes_docx, nome_base + ".docx",
+                    "vnd.openxmlformats-officedocument."
+                    "wordprocessingml.document",
+                    "⬇️ .docx (link direto)"),
+                    unsafe_allow_html=True)
+            with c_pdf:
+                st.download_button(
+                    label="⬇️ Baixar .pdf (Padrão SEMA com Banner)", data=bytes_pdf,
+                    file_name=nome_base + ".pdf", mime="application/pdf",
+                    width="stretch", key="dl_parecer_pdf")
+                st.markdown(link_download(
+                    bytes_pdf, nome_base + ".pdf", "application/pdf",
+                    "⬇️ .pdf (link direto)"), unsafe_allow_html=True)
+            st.caption(f"Prévia: {len(texto_final.splitlines())} linhas · "
+                       f"docx {len(bytes_docx) // 1024} KB · pdf "
+                       f"{len(bytes_pdf) // 1024} KB · cópias salvas em saidas/")
+            _pasta = Path("saidas")
+            _pasta.mkdir(exist_ok=True)
+            (_pasta / (nome_base + ".docx")).write_bytes(bytes_docx)
+            (_pasta / (nome_base + ".pdf")).write_bytes(bytes_pdf)
 
     rodape_calibracao()
 
