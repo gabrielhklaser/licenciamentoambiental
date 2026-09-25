@@ -34,14 +34,15 @@ def compilar_texto_parecer(
         arquivos_recebidos: Optional[list] = None,
         resumo_quadro: Optional[dict] = None,
         comentarios_analista: Optional[str] = None,
-        numero_parecer: str = "303/2026",
+        numero_parecer: str = "",
         numero_processo: Optional[str] = None,
         objeto_parecer: Optional[str] = None,
         nome_tecnico: Optional[str] = None,
         cargo_tecnico: Optional[str] = None,
         registro_tecnico: Optional[str] = None,
         prazo_dias: int = 30,
-        data_referencia: Optional[date] = None) -> str:
+        data_referencia: Optional[date] = None,
+        **kwargs) -> str:
     """Compila o parecer técnico estruturado conforme o padrão oficial da SEMA Campo Bom."""
     ref = data_referencia or date.today()
     dados_processo = dados_processo or {}
@@ -49,6 +50,13 @@ def compilar_texto_parecer(
     resultado_admin = resultado_admin or {}
     resultados_tecnicos = resultados_tecnicos or []
     resumo_quadro = resumo_quadro or {}
+
+    # Resiliência para parâmetros passados via kwargs
+    numero_processo = numero_processo or kwargs.get("numero_processo")
+    objeto_parecer = objeto_parecer or kwargs.get("objeto_parecer")
+    nome_tecnico = nome_tecnico or kwargs.get("nome_tecnico")
+    cargo_tecnico = cargo_tecnico or kwargs.get("cargo_tecnico")
+    registro_tecnico = registro_tecnico or kwargs.get("registro_tecnico")
 
     emp = dados_processo.get("empreendimento", {}) or {}
     empreendedor = dados_processo.get("empreendedor", {}) or {}
@@ -58,16 +66,19 @@ def compilar_texto_parecer(
              or emp.get("nome_empreendimento") or "—")
     cnpj = (empreendedor.get("cpf_cnpj")
             or empreendedor.get("cnpj_cpf") or "—")
-    proc_num = (numero_processo or dados_processo.get("numero_processo")
-                or dados_processo.get("processo") or "1157/2026")
+    
+    # Campo limpo/preenchível se não fornecido
+    proc_num = (str(numero_processo).strip() if (numero_processo and str(numero_processo).strip())
+                else (dados_processo.get("numero_processo") or dados_processo.get("processo") or "________"))
+    par_num = str(numero_parecer).strip() if (numero_parecer and str(numero_parecer).strip()) else "________"
     atividade = emp.get("nome_empreendimento") or emp.get("ramo_atividade") or "Atividade sob Licenciamento"
     tipo_lic = pleito.get("tipo_licenca") or "Licença Ambiental"
     fases = ", ".join(pleito.get("fases_componentes") or ["—"])
 
     # Cabeçalho estritamente no padrão oficial do parecer de Campo Bom
     linhas: list[str] = [
-        f"PARECER TÉCNICO: {numero_parecer} – SEMA/CB",
-        f"PARECER TÉCNICO Nº {numero_parecer}",
+        f"PARECER TÉCNICO: {par_num} – SEMA/CB",
+        f"PARECER TÉCNICO Nº {par_num}",
         f"Empreendedor: {razao}",
         f"CNPJ: {cnpj}",
         f"Nº do processo: {proc_num}",

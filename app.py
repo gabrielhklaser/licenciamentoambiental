@@ -34,6 +34,9 @@ from licenciamento.esquemas_tecnicos import StatusValidacao
 from licenciamento.gerador_oficios import GeradorOficios
 from licenciamento.seguranca import (attr_html, md_seguro,
                                      nome_arquivo_seguro, sufixo_seguro)
+import importlib
+import licenciamento.compilador_parecer
+importlib.reload(licenciamento.compilador_parecer)
 from licenciamento.compilador_parecer import (compilar_texto_parecer,
                                               exportar_docx, exportar_pdf)
 from licenciamento.parser_formulario import FormularioParser
@@ -911,7 +914,9 @@ def pagina_analise() -> None:
     # --------------------------------------------------------------
     banner_path = RAIZ / "assets" / "banner_campo_bom.jpg"
     if banner_path.exists():
-        st.image(str(banner_path), use_container_width=True)
+        c_b1, c_b2 = st.columns([1, 1])
+        with c_b1:
+            st.image(str(banner_path), use_container_width=True)
 
     st.subheader("📄 Emissão do Parecer Técnico — Padrão SEMA Campo Bom")
     st.markdown("O parecer consolida **o que falta para contemplar todos os "
@@ -922,12 +927,9 @@ def pagina_analise() -> None:
     with st.expander("🏛️ Cabeçalho, Processo e Assinatura do Parecer (Padrão SEMA)", expanded=True):
         c_h1, c_h2, c_h3 = st.columns(3)
         with c_h1:
-            numero = st.text_input("Nº do parecer", value="001/2026", key="parecer_num")
+            numero = st.text_input("Nº do parecer", value="", placeholder="Ex: 303/2026", key="parecer_num")
         with c_h2:
-            num_proc_padrao = (dados.get("numero_processo")
-                               or dados.get("processo")
-                               or "1157/2026")
-            numero_proc = st.text_input("Nº do processo", value=str(num_proc_padrao), key="parecer_proc")
+            numero_proc = st.text_input("Nº do processo", value="", placeholder="Ex: 1157/2026", key="parecer_proc")
         with c_h3:
             prazo = st.number_input("Prazo para complementação (dias)", min_value=5,
                                     max_value=180, value=30, key="parecer_prazo")
@@ -972,7 +974,7 @@ def pagina_analise() -> None:
                       help="Marque a confirmação da conferência para liberar a emissão.")
 
     if revisado:
-        if gerar or st.session_state.get("parecer_texto") is None:
+        if gerar:
             try:
                 st.session_state["parecer_texto"] = \
                     compilar_texto_parecer(
@@ -995,25 +997,30 @@ def pagina_analise() -> None:
                 st.error(f"❌ Falha ao COMPILAR o parecer: {exc}")
                 st.stop()
 
-        texto_final = st.session_state.get("parecer_texto") or ""
-        with st.expander("👁️ Prévia do parecer — EDITÁVEL antes de exportar",
-                         expanded=True):
-            st.caption("Edite livremente abaixo. Para levar a outro "
-                       "documento: selecione tudo (Ctrl+A) e copie "
-                       "(Ctrl+C). Ou exporte .docx/.pdf pelos botões.")
-            texto_final = st.text_area(
-                "Texto do parecer (editável)", value=texto_final,
-                height=520, key="parecer_texto_area",
-                label_visibility="collapsed")
+        bytes_docx = bytes_pdf = None
+        if st.session_state.get("parecer_texto"):
+            texto_final = st.session_state.get("parecer_texto") or ""
+            with st.expander("👁️ Prévia do parecer — EDITÁVEL antes de exportar",
+                             expanded=True):
+                st.caption("Edite livremente abaixo. Para levar a outro "
+                           "documento: selecione tudo (Ctrl+A) e copie "
+                           "(Ctrl+C). Ou exporte .docx/.pdf pelos botões.")
+                texto_final = st.text_area(
+                    "Texto do parecer (editável)", value=texto_final,
+                    height=520, key="parecer_texto_area",
+                    label_visibility="collapsed")
 
-        # 2) EXPORTAR .docx / .pdf a partir do texto (editado ou não)
-        nome_base = f"parecer_tecnico_{numero.replace('/', '-')}"
-        try:
-            bytes_docx = exportar_docx(texto_final, numero)
-            bytes_pdf = exportar_pdf(texto_final, numero)
-        except Exception as exc:  # noqa: BLE001
-            st.error(f"❌ Falha ao EXPORTAR o parecer: {exc}")
-            bytes_docx = bytes_pdf = None
+            # 2) EXPORTAR .docx / .pdf a partir do texto (editado ou não)
+            num_clean = numero.strip().replace('/', '-') if numero.strip() else "minuta"
+            nome_base = f"parecer_tecnico_{num_clean}"
+            try:
+                bytes_docx = exportar_docx(texto_final, numero or "________")
+                bytes_pdf = exportar_pdf(texto_final, numero or "________")
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"❌ Falha ao EXPORTAR o parecer: {exc}")
+                bytes_docx = bytes_pdf = None
+        else:
+            st.info("ℹ️ Preencha os campos de identificação acima (Nº do parecer, Nº do processo e assinatura) e clique em **'📝 Gerar parecer (texto editável)'** para compilar a minuta oficial.")
         if bytes_docx and bytes_pdf:
             c_docx, c_pdf = st.columns(2)
             with c_docx:

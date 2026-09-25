@@ -1765,6 +1765,12 @@ def test_emissao_parecer_tecnico_download_funciona():
     at.checkbox[0].check().run()
     assert not at.exception
 
+    # Simula preenchimento manual do Nº do parecer pelo usuário (campo vem limpo por padrão)
+    for ti in at.text_input:
+        if "parecer" in ti.label.lower():
+            ti.set_value("001/2026")
+    at.run()
+
     # (1) o botão agora COMPILA o texto em vez de baixar direto
     gerar = [b for b in at.button if "Gerar parecer" in b.label]
     assert gerar, "botão 'Gerar parecer (texto editável)' ausente"
