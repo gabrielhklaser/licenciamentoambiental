@@ -61,36 +61,33 @@ def compilar_texto_parecer(
         "2. DOCUMENTAÇÃO APRESENTADA",
     ]
     if arquivos_recebidos:
-        for i, nome in enumerate(arquivos_recebidos, 1):
-            linhas.append(f"{i}. {nome}")
+        linhas.append(f"Foram apresentados {len(arquivos_recebidos)} documento(s) para instrução do processo.")
     else:
         linhas.append("Nenhum documento apresentado.")
 
     linhas += ["", "3. ANÁLISE DA DOCUMENTAÇÃO EXIGIDA PARA A LICENÇA"]
-    rotulo = {"CONFORME": "EM CONFORMIDADE", "PENDENTE": "PENDENTE",
-              "NAO_APRESENTADO": "NÃO APRESENTADO"}
-    if quadro_documentos:
-        for linha in quadro_documentos:
-            situacao = rotulo.get(linha.get("situacao"),
-                                  linha.get("situacao"))
-            marcador = {"EM CONFORMIDADE": "OK", "PENDENTE": "!",
-                        "NÃO APRESENTADO": "X"}.get(situacao, "•")
-            texto_linha = (f"[{marcador}] {linha.get('documento')} — "
-                           f"{situacao}")
-            if linha.get("arquivo"):
-                texto_linha += f" (arquivo: {linha['arquivo']})"
-            linhas.append(texto_linha)
-            for pend in linha.get("pendencias") or []:
-                linhas.append(f"    -> {pend}")
-        if resumo_quadro:
-            linhas.append(
-                "Síntese: {conforme} em conformidade, {pendente} com "
-                "pendência(s), {ausente} não apresentado(s).".format(
-                    conforme=resumo_quadro.get("CONFORME", 0),
-                    pendente=resumo_quadro.get("PENDENTE", 0),
-                    ausente=resumo_quadro.get("NAO_APRESENTADO", 0)))
+    faltantes_checklist = [l for l in quadro_documentos if l.get("situacao") == "NAO_APRESENTADO"]
+    pendentes_checklist = [l for l in quadro_documentos if l.get("situacao") == "PENDENTE"]
+
+    if faltantes_checklist or pendentes_checklist:
+        if faltantes_checklist:
+            linhas.append("Documentos exigidos pelo checklist e NÃO apresentados:")
+            for l in faltantes_checklist:
+                linhas.append(f"• Apresentar: {l.get('documento')}")
+        if pendentes_checklist:
+            if faltantes_checklist:
+                linhas.append("")
+            linhas.append("Documentos apresentados com pendência documental:")
+            for l in pendentes_checklist:
+                arq_info = f" (arquivo: {l.get('arquivo')})" if l.get('arquivo') else ""
+                linhas.append(f"• {l.get('documento')}{arq_info}:")
+                for pend in l.get("pendencias") or []:
+                    linhas.append(f"    - {pend}")
     else:
-        linhas.append("Quadro de documentos não disponível.")
+        if quadro_documentos:
+            linhas.append("Todos os documentos exigidos pelo checklist da licença foram apresentados.")
+        else:
+            linhas.append("Quadro de documentos não disponível.")
 
     linhas += ["", "4. PENDÊNCIAS ADMINISTRATIVAS"]
     pend_admin: list[str] = list(resultado_admin.get("bloqueios", []) or [])
@@ -109,21 +106,34 @@ def compilar_texto_parecer(
 
     linhas += ["", "5. ANÁLISE TÉCNICA — TERMOS DE REFERÊNCIA"]
     houve_tecnica = False
+
+    def _limpar_erro_tecnico(item: str) -> Optional[str]:
+        txt = item.strip()
+        txt_l = txt.lower()
+        if any(ign in txt_l for ign in [
+            "dupla checagem", "1ª execução", "2ª execução", "divergentes entre a 1ª",
+            "motor da análise", "origem da análise", "heurístico", "determinístico"
+        ]):
+            return None
+        return txt
+
     for resultado in resultados_tecnicos:
-        if getattr(resultado, "itens_reprovados", None):
+        reprovados_brutos = getattr(resultado, "itens_reprovados", None) or []
+        itens_filtrados = []
+        for it in reprovados_brutos:
+            it_limpo = _limpar_erro_tecnico(it)
+            if it_limpo and it_limpo not in itens_filtrados:
+                itens_filtrados.append(it_limpo)
+
+        if itens_filtrados:
             houve_tecnica = True
-            status = getattr(getattr(resultado, "status", None),
-                             "value", resultado.status)
-            linhas.append(f"• Documento: {resultado.documento_analisado} — "
-                          f"{resultado.norma_tr} — {status}")
-            for item in resultado.itens_reprovados:
-                linhas.append(f"    -> {item}")
-            if getattr(resultado, "trecho_referencia", ""):
-                linhas.append(f'    (trecho do laudo: '
-                              f'"{resultado.trecho_referencia}")')
+            norma_nome = getattr(resultado, "norma_tr", "TR Aplicável")
+            doc_nome = getattr(resultado, "documento_analisado", "Documento")
+            linhas.append(f"• {doc_nome} ({norma_nome}):")
+            for item in itens_filtrados:
+                linhas.append(f"    - {item}")
     if not houve_tecnica:
-        linhas.append("Laudos analisados sem não conformidades com os Termos "
-                      "de Referência aplicáveis.")
+        linhas.append("Laudos técnicos analisados em conformidade com os Termos de Referência aplicáveis.")
 
     linhas += ["", "6. CONCLUSÃO — PROVIDÊNCIAS PARA COMPLEMENTAÇÃO"]
     if comentarios_analista:
@@ -131,37 +141,50 @@ def compilar_texto_parecer(
         for paragrafo in comentarios_analista.split("\n"):
             if paragrafo.strip():
                 linhas.append(paragrafo.strip())
+        linhas.append("")
+
     faltando: list[str] = []
+    # 1) Faltantes no checklist
     for linha in quadro_documentos:
         if linha.get("situacao") == "NAO_APRESENTADO":
             faltando.append(f"Apresentar: {linha.get('documento')}.")
         elif linha.get("situacao") == "PENDENTE":
             for pend in linha.get("pendencias") or []:
-                faltando.append(
-                    f"Regularizar '{linha.get('documento')}': {pend}")
-    faltando.extend(pend_admin)
+                faltando.append(f"Regularizar '{linha.get('documento')}': {pend}")
+
+    # 2) Pendências administrativas
+    for p in pend_admin:
+        if p not in faltando:
+            faltando.append(p)
+
+    # 3) Pendências técnicas nos laudos
     for resultado in resultados_tecnicos:
-        if getattr(resultado, "itens_reprovados", None) and hasattr(
-                resultado, "resumo_para_oficio"):
-            faltando.append(resultado.resumo_para_oficio())
-    if faltando:
+        reprovados_brutos = getattr(resultado, "itens_reprovados", None) or []
+        for it in reprovados_brutos:
+            it_limpo = _limpar_erro_tecnico(it)
+            if it_limpo:
+                item_oficio = f"No documento '{resultado.documento_analisado}': {it_limpo}"
+                if item_oficio not in faltando:
+                    faltando.append(item_oficio)
+
+    faltando_dedup = list(dict.fromkeys(faltando))
+    if faltando_dedup:
         linhas.append(
-            f"Diante do exposto, o interessado deverá atender "
-            f"{len(faltando)} providência(s) no prazo de {prazo_dias} dias "
+            f"Diante do exposto, o interessado deverá atender às "
+            f"{len(faltando_dedup)} providência(s) apontada(s) no prazo de {prazo_dias} dias "
             f"corridos contados do recebimento deste parecer, sob pena de "
             f"indeferimento do processo:")
-        for i, item in enumerate(dict.fromkeys(faltando), 1):
+        for i, item in enumerate(faltando_dedup, 1):
             linhas.append(f"{i}. {item}")
     else:
         linhas.append("Análise concluída SEM PROVIDÊNCIAS pendentes: a "
-                      "documentação está em conformidade com o exigido para "
-                      "esta fase do licenciamento.")
+                      "documentação apresentada e os laudos técnicos atendem "
+                      "integralmente aos requisitos exigidos para esta fase do licenciamento.")
 
     linhas += ["", "", "Campo Bom/RS, " + f"{ref:%d de %B de %Y}.", "",
                "_______________________________________",
                "Analista Ambiental — SEMA Campo Bom",
-               f"Parecer emitido pelo Sistema de Verificação do Licenciamento "
-               f"Ambiental (nº {numero_parecer})."]
+               f"Parecer emitido pelo Setor de Licenciamento Ambiental (nº {numero_parecer})."]
     return "\n".join(linhas)
 
 

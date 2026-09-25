@@ -406,7 +406,8 @@ def executar_analise(arquivos: list, tipo_selecionado: str,
             resultados_tecnicos.extend(auditor.auditar_com_dupla_checagem(
                 arq.name, texto,
                 arts_formulario=arts_formulario or None,
-                areas_formulario=areas_formulario or None))
+                areas_formulario=areas_formulario or None,
+                tipo_documento=registro["tipo"]))
 
     # o formulário também participa do casamento do quadro
     for form in formularios:
@@ -694,72 +695,103 @@ def pagina_analise() -> None:
                    f"emissão{selo}")
 
     # --------------------------------------------------------------
-    # ANÁLISE POR DOCUMENTO RECEBIDO
+    # ANÁLISE DOS DOCUMENTOS RECEBIDOS (CONSOLIDADA E SEM REPETIÇÃO)
     # --------------------------------------------------------------
     st.subheader("🔎 Análise dos documentos recebidos")
-    ordem = {"CONFORME": 0, "PENDENTE": 1, "REVISAO_MANUAL": 2}
-    por_nome = sorted(analises.items(),
-                      key=lambda kv: (ordem.get(getattr(kv[1], "status").value, 3),
-                                      kv[0]))
-    for nome, analise in por_nome:
-        emoji = emoji_status_tecnico(analise.status)
-        cab = (f"{emoji} {md_seguro(nome)} · "
-               f"{md_seguro(analise.norma_tr or 'Documento')} · "
-               f"**{analise.status.value}**")
-        with st.container(border=True):
-            st.markdown(cab)
-            if analise.itens_reprovados:
-                st.error("\n".join(f"**✗** {md_seguro(item)}"
-                                   for item in analise.itens_reprovados))
-            metricas = analise.metricas or {}
-            if metricas.get("data_emissao"):
-                st.markdown(
-                    f"**Matrícula:** emitida em {metricas['data_emissao'][8:10]}/"
-                    f"{metricas['data_emissao'][5:7]}/{metricas['data_emissao'][:4]} · "
-                    f"{metricas.get('dias_desde_emissao', '?')} dias desde a emissão · "
-                    f"{'**dentro**' if analise.status.value == 'CONFORME' else '**fora**'} "
-                    f"do prazo de {metricas.get('prazo_validade_dias')} dias")
-            if analise.trecho_referencia:
-                st.markdown("> 📄 *Trecho do final do documento:* "
-                            "\"" + md_seguro(analise.trecho_referencia)
-                            + "\"")
-            if nome in (processo.get("imagens") or {}):
-                with st.expander("🖼️ Ver imagem anexada (conferência manual)"):
-                    st.image(processo["imagens"][nome], width="stretch")
 
-    # --------------------------------------------------------------
-    # AUDITORIA TÉCNICA (TRs)
-    # --------------------------------------------------------------
-    with st.expander("📐 Auditoria técnica — Termos de Referência validados",
-                     expanded=any(t.itens_reprovados for t in tecnicos)):
-        gab = st.session_state.get("processo", {}).get("gabarito") or {}
-        if not tecnicos:
-            st.info("Nenhum laudo (.pdf/.txt) submetido para auditoria técnica.")
-        for resultado in tecnicos:
-            emoji = emoji_status_tecnico(resultado.status)
-            cab = (f"{emoji} {md_seguro(resultado.documento_analisado)} · "
-                   f"{md_seguro(resultado.norma_tr)} · "
-                   f"**{resultado.status.value}**")
+    # Consolida os resultados por documento (evita duplicar análise geral x técnica)
+    docs_map: dict[str, dict] = {}
+    for nome, a in analises.items():
+        docs_map[nome] = {
+            "nome": nome,
+            "status": a.status,
+            "norma_tr": a.norma_tr or "Documento",
+            "itens_reprovados": list(a.itens_reprovados or []),
+            "trecho_referencia": a.trecho_referencia,
+            "metricas": a.metricas or {},
+        }
+
+    for t in tecnicos:
+        nome = t.documento_analisado
+        if nome not in docs_map:
+            docs_map[nome] = {
+                "nome": nome,
+                "status": t.status,
+                "norma_tr": t.norma_tr,
+                "itens_reprovados": list(t.itens_reprovados or []),
+                "trecho_referencia": t.trecho_referencia,
+                "metricas": t.metricas or {},
+            }
+        else:
+            doc = docs_map[nome]
+            doc["norma_tr"] = t.norma_tr
+            for item in (t.itens_reprovados or []):
+                if item and item not in doc["itens_reprovados"]:
+                    doc["itens_reprovados"].append(item)
+            ordem_status = {"REVISAO_MANUAL": 0, "PENDENTE": 1, "CONFORME": 2}
+            if ordem_status.get(t.status.value, 9) < ordem_status.get(doc["status"].value, 9):
+                doc["status"] = t.status
+            if t.trecho_referencia:
+                doc["trecho_referencia"] = t.trecho_referencia
+            if t.metricas:
+                doc["metricas"] = {**doc["metricas"], **t.metricas}
+
+    def _limpar_erros_display(itens: list[str]) -> list[str]:
+        out = []
+        for it in itens:
+            txt = it.strip()
+            if any(ign in txt.lower() for ign in ["dupla checagem", "1ª execução", "2ª execução", "divergentes entre"]):
+                continue
+            if txt and txt not in out:
+                out.append(txt)
+        return out
+
+    pendentes = []
+    conformes = []
+    for nome, doc in docs_map.items():
+        doc["itens_reprovados"] = _limpar_erros_display(doc["itens_reprovados"])
+        if doc["status"].value in ("PENDENTE", "REVISAO_MANUAL") or doc["itens_reprovados"]:
+            pendentes.append(doc)
+        else:
+            conformes.append(doc)
+
+    # Exibe primeiro os documentos que precisam de atenção (pendências)
+    if pendentes:
+        st.markdown(f"**Documentos com pendências ou para revisão ({len(pendentes)}):**")
+        for doc in pendentes:
+            emoji = emoji_status_tecnico(doc["status"])
             with st.container(border=True):
-                st.markdown(cab)
-                st.caption(f"Motor da análise: {resultado.origem.value}")
-            _dc = (resultado.metricas or {}).get("dupla_checagem")
-            if _dc:
-                _tt = (resultado.metricas or {}).get(
-                    "tr_confirmado_pelo_titulo")
-                st.caption("🔎 Dupla checagem: " + str(_dc)
-                           + (" · TR confirmado pelo título do documento"
-                              if _tt else ""))
-                if resultado.itens_reprovados:
-                    st.error("\n".join(
-                        f"**✗** {md_seguro(item)}"
-                        for item in resultado.itens_reprovados))
-                if resultado.trecho_referencia:
-                    st.markdown("> 📄 *Trecho de referência do laudo:* "
-                                "\"" + md_seguro(resultado.trecho_referencia)
-                                + "\"")
-                with st.expander("Ver métricas extraídas"):
-                    st.json(resultado.metricas)
+                st.markdown(f"**{emoji} {md_seguro(doc['nome'])}** · `{md_seguro(doc['norma_tr'])}` · **{doc['status'].value}**")
+                for err in doc["itens_reprovados"]:
+                    st.markdown(f"- ⚠️ {md_seguro(err)}")
+
+                with st.expander("🔍 Ver detalhes / trecho do laudo", expanded=False):
+                    if doc.get("trecho_referencia"):
+                        st.markdown(f"> 📄 *Trecho identificado:* \"{md_seguro(doc['trecho_referencia'])}\"")
+                    metricas = doc.get("metricas") or {}
+                    if metricas.get("data_emissao"):
+                        st.markdown(
+                            f"**Matrícula:** emitida em {metricas['data_emissao'][8:10]}/"
+                            f"{metricas['data_emissao'][5:7]}/{metricas['data_emissao'][:4]} · "
+                            f"{metricas.get('dias_desde_emissao', '?')} dias desde a emissão · "
+                            f"prazo de {metricas.get('prazo_validade_dias')} dias")
+                    metricas_exibir = {k: v for k, v in metricas.items() if k not in ("dupla_checagem", "tr_confirmado_pelo_titulo") and v is not None}
+                    if metricas_exibir:
+                        st.json(metricas_exibir)
+                    if doc["nome"] in (processo.get("imagens") or {}):
+                        st.image(processo["imagens"][doc["nome"]], width="stretch")
+    else:
+        st.success("✅ Todos os documentos analisados estão em conformidade!")
+
+    # Documentos em conformidade agrupados de forma limpa e compacta
+    if conformes:
+        with st.expander(f"✅ Documentos em conformidade ({len(conformes)})", expanded=False):
+            for doc in conformes:
+                metricas = doc.get("metricas") or {}
+                extra_info = ""
+                if metricas.get("data_emissao"):
+                    extra_info = f" (emitida em {metricas['data_emissao'][8:10]}/{metricas['data_emissao'][5:7]}/{metricas['data_emissao'][:4]} · válida)"
+                st.markdown(f"- ✅ **{md_seguro(doc['nome'])}** — *{md_seguro(doc['norma_tr'])}*{extra_info}")
 
     # --------------------------------------------------------------
     # ADMINISTRATIVO + TAXA (compactos)

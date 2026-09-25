@@ -565,7 +565,11 @@ class FormularioParser:
                                      "cpf_cnpj": None}
         try:
             resultado["nome_razao_social"] = self._buscar_valor(self.ROTULOS["nome_razao_social"])
+            if resultado["nome_razao_social"]:
+                resultado["nome_razao_social"] = re.sub(r"\s+", " ", resultado["nome_razao_social"]).strip()
             resultado["nome_fantasia"] = self._buscar_valor(self.ROTULOS["nome_fantasia"])
+            if resultado["nome_fantasia"]:
+                resultado["nome_fantasia"] = re.sub(r"\s+", " ", resultado["nome_fantasia"]).strip()
             # seção 1 (tabelas quebradas com vários pares por linha): a 1ª
             # ocorrência de cada rótulo é a do EMPREENDEDOR
             resultado["endereco"] = self._buscar_valor(self.ROTULOS["endereco_empreendimento"])
@@ -715,6 +719,9 @@ class FormularioParser:
                 saida["longitude"] = _arredondar(saida["longitude"], 7)
             if saida["formato"] is None and saida["latitude"] is not None:
                 saida["formato"] = "GEOGRAFICA"
+            if saida["formato"] == "GEOGRAFICA" and saida["latitude"] is not None:
+                if saida.get("valores_brutos") and any(w in saida["valores_brutos"].upper() for w in ["LICENCA", "LICENÇA", "PRIMEIRA", "RENOVACAO", "RENOVAÇÃO"]):
+                    saida["valores_brutos"] = f"Lat: {saida['latitude']}, Long: {saida['longitude']}"
             if saida["formato"] is None:
                 self._registrar_falha("extrair_coordenadas", "coordenadas não localizadas")
         except Exception as exc:  # noqa: BLE001
@@ -945,6 +952,11 @@ class FormularioParser:
             if resultado["nome"]:
                 # remove possíveis quebras de célula ('Nome - CREA 123' etc.)
                 resultado["nome"] = re.split(r"\s*[-–|]\s*", resultado["nome"])[0].strip()
+                if len(resultado["nome"]) > 60 or any(
+                    w in resultado["nome"].upper() for w in
+                    ["FORMULÁRIO", "FORMULARIO", "LICENCIAMENTO", "PARCELAMENTO", "DECRETO", "LEI"]
+                ):
+                    resultado["nome"] = None
 
             art_bruto = self._buscar_valor(self.ROTULOS["registro_art"], self.REGEX["art"])
             if art_bruto:
@@ -972,9 +984,12 @@ class FormularioParser:
                         for j in range(idx - 1, max(idx - 6, -1), -1):
                             rot_j, val_j = self._pares_rotulo_valor[j]
                             if rot_j == "NOME" and len((val_j or "").strip()) >= 4:
-                                resultado["nome"] = val_j.strip()
-                                break
-                        break
+                                cand = val_j.strip()
+                                if not any(w in cand.upper() for w in ["FORMULÁRIO", "FORMULARIO", "LICENCIAMENTO"]):
+                                    resultado["nome"] = re.sub(r"\s+", " ", cand)
+                                    break
+                        if resultado["nome"]:
+                            break
         except Exception as exc:  # noqa: BLE001
             self._registrar_falha("extrair_responsavel_tecnico", str(exc))
         return resultado
@@ -1052,7 +1067,7 @@ class FormularioParser:
                         and self.REGEX_RENOVACAO.search(texto_tabela)):
                     continue  # não é a tabela do motivo em 2 colunas
                 linhas = tabela.find_all("tr")
-                if len(linhas) < 2:
+                if not linhas:
                     continue
                 celulas_cab = linhas[0].find_all(["td", "th"])
                 col_primeira = col_renov = None
@@ -1062,20 +1077,36 @@ class FormularioParser:
                     t = normalizar(celula.get_text(" ", strip=True))
                     if self.REGEX_PRIMEIRA_LICENCA.search(t):
                         col_primeira = i
-                        if self._marca_em_celula(celula):
+                        inp = celula.find("input", attrs={"type": ["checkbox", "radio"]})
+                        if (inp and inp.has_attr("checked")) or self._marca_em_celula(celula):
                             coluna_ativa, natureza = i, "Primeira licença"
                     elif self.REGEX_RENOVACAO.search(t):
                         col_renov = i
-                        if self._marca_em_celula(celula):
+                        inp = celula.find("input", attrs={"type": ["checkbox", "radio"]})
+                        if (inp and inp.has_attr("checked")) or self._marca_em_celula(celula):
                             coluna_ativa, natureza = i, "Renovação"
-                # ---- tipos marcados por coluna (para inferência/ambiguidade) --
-                marcadas: dict[int, tuple[int, Any]] = {}
+
+                # ---- tipos marcados por coluna (celulas_cab ou linhas seguintes) --
+                marcadas: dict[int, tuple[int, Any, str, str]] = {}
+                for ci, celula in enumerate(celulas_cab):
+                    for entrada in celula.find_all("input", attrs={"type": "radio"}):
+                        if entrada.has_attr("checked"):
+                            txt = self._texto_da_marcacao(entrada)
+                            sigla = self._pleito_no_texto(txt) if txt else None
+                            if sigla:
+                                marcadas.setdefault(ci, (0, celula, sigla, txt))
+
                 for ri, linha_tr in enumerate(linhas[1:], start=1):
                     celulas = linha_tr.find_all(["td", "th"])
                     for ci, celula in enumerate(celulas):
-                        if self._marca_em_celula(celula) and self._pleito_no_texto(
-                                celula.get_text(" ", strip=True)):
-                            marcadas.setdefault(ci, (ri, celula))
+                        if self._marca_em_celula(celula):
+                            radio = next((r for r in celula.find_all("input", attrs={"type": "radio"})
+                                          if r.has_attr("checked")), None)
+                            txt = self._texto_da_marcacao(radio) if radio else celula.get_text(" ", strip=True)
+                            sigla = self._pleito_no_texto(txt)
+                            if sigla:
+                                marcadas.setdefault(ci, (ri, celula, sigla, txt))
+
                 if coluna_ativa is None:
                     ativas = sorted(marcadas)
                     if len(ativas) == 1:
@@ -1088,17 +1119,16 @@ class FormularioParser:
                             "tabela Primeira licença/Renovação com marcações nas DUAS "
                             "colunas e cabeçalhos sem marca - conferir manualmente")
                         return None
+
                 if coluna_ativa is None or coluna_ativa not in marcadas:
                     continue  # nada marcado nesta tabela; tenta as demais camadas
-                _, celula_tipo = marcadas[coluna_ativa]
-                descricao = celula_tipo.get_text(" ", strip=True)[:160]
-                for sigla, padrao in self.PLEITOS:
-                    if padrao.search(normalizar(descricao)):
-                        return {"tipo_licenca": sigla,
-                                "descricao_pleito": descricao,
-                                "metodo": "marcação no formulário (tabela "
-                                          "Primeira licença/Renovação)",
-                                "natureza": natureza}
+
+                _, _, sigla, descricao = marcadas[coluna_ativa]
+                return {"tipo_licenca": sigla,
+                        "descricao_pleito": descricao[:160],
+                        "metodo": "marcação no formulário (tabela "
+                                  "Primeira licença/Renovação)",
+                        "natureza": natureza}
         except Exception as exc:  # noqa: BLE001
             self._registrar_falha("_detectar_pleito_tabela_natureza", str(exc))
         return None
@@ -1744,11 +1774,15 @@ class FormularioParser:
             # ---- (a) tabela com cabeçalho ART + Responsável --------------
             if self.soup:
                 for tabela in self.soup.find_all("table"):
+                    if tabela.find_all("table"):
+                        continue  # ignora tabelas que contêm outras tabelas (tabelas externas)
                     linhas = tabela.find_all("tr")
                     if len(linhas) < 2:
                         continue
                     cab = [normalizar(c.get_text(" ", strip=True)).upper()
                            for c in linhas[0].find_all(["td", "th"])]
+                    if len(cab) > 10:
+                        continue
                     if not any(c.startswith("ART") for c in cab):
                         continue
                     if not any("RESPONSAVEL" in c for c in cab):
@@ -1774,8 +1808,13 @@ class FormularioParser:
                         nome, registro, art = _val(i_nome), _val(i_reg), _val(i_art)
                         if not nome and not art:
                             continue  # linha vazia ('Execução da obra', etc.)
+                        # descarta perguntas do formulário ou textos legais
+                        if len(nome) > 80 or "?" in nome or ":" in nome:
+                            continue
+                        if any(w in nome.upper() for w in ["FORMULÁRIO", "FORMULARIO", "LEI", "PARÁGRAFO", "PARAGRAFO"]):
+                            continue
                         saida.append({
-                            "nome": nome,
+                            "nome": re.sub(r"\s+", " ", nome),
                             "registro": registro or None,
                             "art_rtt": (f"{prefixo} {art}" if art else None),
                             "etapa": _val(i_etapa),

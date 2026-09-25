@@ -45,6 +45,7 @@ import math
 import os
 import re
 import unicodedata
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Optional, Type
 
@@ -370,16 +371,22 @@ class AuditorTecnico:
         return texto.replace(",", "X").replace(".", ",").replace("X", ".")
 
     @staticmethod
-    def _detectar_contexto_sondagem(texto: str) -> str:
+    def _detectar_contexto_sondagem(texto: str, nome_documento: Optional[str] = None) -> str:
         """Define o gabarito de sondagem: 'RSCC' (aterro) ou 'PARCELAMENTO'."""
+        if nome_documento:
+            nd = ProvedorLLMHeuristico._norm(nome_documento)
+            if any(k in nd for k in ["parcelamento", "loteamento", "laudo geologico", "desmembramento", "condominio"]):
+                return "PARCELAMENTO"
+            if any(k in nd for k in ["aterro de rscc", "aterro sanitario"]):
+                return "RSCC"
         t = ProvedorLLMHeuristico._norm(texto)
-        if any(k in t for k in ["aterro", "rscc", "residuos da construcao civil",
-                                "células de deposicao", "celulas de deposicao"]):
-            return "RSCC"
-        if any(k in t for k in ["parcelamento", "loteamento", "laudo geologico",
+        if any(k in t for k in ["parcelamento", "loteamento", "condominio", "laudo geologico",
                                 "desmembramento", "gleba a ser parcelada"]):
             return "PARCELAMENTO"
-        return "RSCC"  # padrão mais restritivo na distância do lençol
+        if any(k in t for k in ["aterro de rscc", "aterro sanitario", "residuos da construcao civil",
+                                "células de deposicao", "celulas de deposicao"]):
+            return "RSCC"
+        return "PARCELAMENTO"
 
     def extrair_parametros_sondagem(self, texto: str,
                                     contexto: Optional[str] = None) -> MetricasSondagem:
@@ -724,14 +731,19 @@ class AuditorTecnico:
     # CAMADA SEMÂNTICA - LLM com saída estruturada (Pydantic)
     # ==========================================================================
     def _concluir_llm(self, nome_documento: str, norma_tr: str,
-                      veredito: BaseModel, reprovacao: str) -> ResultadoValidacao:
+                      veredito: BaseModel, reprovacao: str | list[str]) -> ResultadoValidacao:
         dados = veredito.model_dump()
-        conforme = not reprovacao
+        if isinstance(reprovacao, list):
+            itens = [r.strip() for r in reprovacao if r and r.strip()]
+            conforme = not itens
+        else:
+            conforme = not reprovacao
+            itens = [] if conforme else [reprovacao.strip()]
         return ResultadoValidacao(
             documento_analisado=nome_documento,
             norma_tr=norma_tr,
             status=StatusValidacao.CONFORME if conforme else StatusValidacao.PENDENTE,
-            itens_reprovados=[] if conforme else [reprovacao],
+            itens_reprovados=itens,
             trecho_referencia=(dados.get("trecho_cronograma") or dados.get("trecho_metodologia")
                                or dados.get("trecho_monitoramento") or ""),
             metricas=dados,
@@ -755,20 +767,15 @@ class AuditorTecnico:
                 origem=OrigemAnalise.HEURISTICO_LOCAL)
 
         minimo_anos = int(self.parametros["prad_monitoramento_minimo_anos"])
-        reprovacao = ""
+        reprovacoes: list[str] = []
         if not veredito.cronograma_fisico_financeiro_presente:
-            reprovacao += ("O PRAD não apresenta cronograma físico e financeiro detalhado, "
-                           "conforme exigência do item 4.2 do Termo de Referência. ")
+            reprovacoes.append("Ausência de cronograma físico e financeiro detalhado (TR PRAD, item 4.2).")
         if veredito.periodo_monitoramento_anos is None:
-            reprovacao += ("Período de monitoramento não identificado - o TR PRAD exige "
-                           f"monitoramento por no mínimo {minimo_anos} anos (item 5.7). ")
+            reprovacoes.append(f"Período de monitoramento não identificado - mínimo exigido: {minimo_anos} anos (TR PRAD, item 5.7).")
         elif veredito.periodo_monitoramento_anos < minimo_anos:
-            reprovacao += (f"Monitoramento proposto de {veredito.periodo_monitoramento_anos} ano(s) "
-                           f"é inferior ao mínimo de {minimo_anos} anos (TR PRAD, item 5.7). ")
-        if reprovacao and veredito.justificativa:
-            reprovacao += veredito.justificativa
+            reprovacoes.append(f"Período de monitoramento proposto ({veredito.periodo_monitoramento_anos} anos) inferior ao mínimo de {minimo_anos} anos (TR PRAD, item 5.7).")
         return self._concluir_llm(nome_documento, "TR PRAD - Áreas Degradadas",
-                                  veredito, reprovacao.strip())
+                                  veredito, reprovacoes)
 
     def validar_fauna(self, nome_documento: str, texto: str) -> ResultadoValidacao:
         """TR Laudo de Fauna Silvestre: busca ativa + passiva por grupo, primavera/
@@ -786,24 +793,18 @@ class AuditorTecnico:
                 itens_reprovados=[f"Falha na análise semântica: {exc}"],
                 origem=OrigemAnalise.HEURISTICO_LOCAL)
 
-        reprovacao = ""
+        reprovacoes: list[str] = []
         if not veredito.metodos_busca_ativa:
-            reprovacao += ("Metodologia não comprova uso de método de BUSCA ATIVA por grupo "
-                           "inventariado (TR LFS - Metodologia). ")
+            reprovacoes.append("Metodologia não comprova uso de método de busca ativa por grupo inventariado (TR LFS).")
         if not veredito.metodos_busca_passiva:
-            reprovacao += ("Metodologia não comprova uso de método de BUSCA PASSIVA por grupo "
-                           "inventariado (TR LFS - Metodologia). ")
+            reprovacoes.append("Metodologia não comprova uso de método de busca passiva por grupo inventariado (TR LFS).")
         if not veredito.amostragem_primavera_verao:
-            reprovacao += ("Amostragens em pelo menos um período de primavera ou verão não "
-                           "comprovadas no laudo (TR LFS). ")
+            reprovacoes.append("Amostragens em pelo menos um período de primavera ou verão não comprovadas no laudo (TR LFS).")
         if self.parametros.get("fauna_suficiencia_curva_coletor") \
                 and not veredito.suficiencia_amostral_curva_coletor:
-            reprovacao += ("Suficiência amostral não determinada pela estabilização da curva do "
-                           "coletor, conforme exige o TR LFS. ")
-        if reprovacao and veredito.justificativa:
-            reprovacao += veredito.justificativa
+            reprovacoes.append("Suficiência amostral não determinada pela estabilização da curva do coletor, conforme exige o TR LFS.")
         return self._concluir_llm(nome_documento, "TR Laudo de Fauna Silvestre (LFS)",
-                                  veredito, reprovacao.strip())
+                                  veredito, reprovacoes)
 
     def validar_pca(self, nome_documento: str, texto: str) -> ResultadoValidacao:
         """TR PCA (2026, item 5.1): relatórios trimestrais na supressão de vegetação,
@@ -821,24 +822,23 @@ class AuditorTecnico:
                 itens_reprovados=[f"Falha na análise semântica: {exc}"],
                 origem=OrigemAnalise.HEURISTICO_LOCAL)
 
-        reprovacao = ""
+        reprovacoes: list[str] = []
         if (veredito.periodicidade_supressao_movimentacao or "").lower() \
                 != str(self.parametros["pca_periodicidade_supressao"]).lower():
-            reprovacao += (f"Periodicidade dos relatórios na fase de supressão de vegetação, "
-                           f"afugentamento de fauna e movimentação de solo "
-                           f"'{veredito.periodicidade_supressao_movimentacao or 'não informada'}', "
-                           f"sendo exigido '{self.parametros['pca_periodicidade_supressao']}' pelo "
-                           f"TR PCA (item 5.1). ")
+            reprovacoes.append(
+                f"Periodicidade dos relatórios na fase de supressão/movimentação de solo "
+                f"'{veredito.periodicidade_supressao_movimentacao or 'não informada'}', "
+                f"sendo exigido '{self.parametros['pca_periodicidade_supressao']}' pelo TR PCA (item 5.1)."
+            )
         if (veredito.periodicidade_obras or "").lower() \
                 != str(self.parametros["pca_periodicidade_obras"]).lower():
-            reprovacao += (f"Periodicidade dos relatórios na fase de implantação de obras e "
-                           f"estruturas '{veredito.periodicidade_obras or 'não informada'}', sendo "
-                           f"exigido '{self.parametros['pca_periodicidade_obras']}' pelo TR PCA "
-                           f"(item 5.1). ")
-        if reprovacao and veredito.justificativa:
-            reprovacao += veredito.justificativa
+            reprovacoes.append(
+                f"Periodicidade dos relatórios na fase de implantação de obras "
+                f"'{veredito.periodicidade_obras or 'não informada'}', sendo "
+                f"exigido '{self.parametros['pca_periodicidade_obras']}' pelo TR PCA (item 5.1)."
+            )
         return self._concluir_llm(nome_documento, "TR Plano de Controle Ambiental (PCA)",
-                                  veredito, reprovacao.strip())
+                                  veredito, reprovacoes)
 
     # ==========================================================================
     # Validação genérica por CHECKLIST DE CONTEÚDO (EIV, LCV e demais TRs)
@@ -886,26 +886,82 @@ class AuditorTecnico:
     # ==========================================================================
     # Roteamento: audita um laudo aplicando os TRs aplicáveis ao seu conteúdo
     # ==========================================================================
-    def _rotear_trs(self, texto: str) -> list[str]:
-        """Identifica quais TRs são aplicáveis ao documento (por palavras-chave).
+    def _rotear_trs(self, texto: str, nome_documento: Optional[str] = None,
+                    tipo_documento: Optional[str] = None) -> list[str]:
+        """Identifica o TR aplicável ao documento (no máximo UM TR por arquivo).
 
-        Os sinais são PONTUADOS (forte = 2, fraco = 1) para evitar falsos
-        positivos (ex.: um PCA que apenas menciona 'supressão de vegetação'
-        não deve disparar a RFO; um laudo RFO que cita 'cobertura vegetal' não
-        deve disparar o checklist LCV - mantém-se o TR de melhor aderência).
+        Cada documento técnico em licenciamento ambiental corresponde a um estudo
+        específico (EIV, Meio Físico/Sondagem, LCV, Fauna, PCA, PRAD ou RFO).
+        TRs nunca são cruzados nem aplicados a outros arquivos (ex.: o EIV
+        não recebe TR de geologia nem de PCA; ARTs e peças administrativas não
+        recebem TRs de conteúdo).
         """
-        t = ProvedorLLMHeuristico._norm(texto)
+        # 1. Se o tipo já foi identificado formalmente
+        if tipo_documento:
+            t_doc = str(tipo_documento).upper().strip()
+            if t_doc in ("EIV", "LCV", "FAUNA", "SONDAGEM", "PCA", "PRAD", "RFO"):
+                return [t_doc]
+            if t_doc in (
+                "ART", "MATRICULA_IMOVEL", "CNPJ", "CONTRATO_SOCIAL", "ALVARA_BOMBEIROS",
+                "ALVARA_MUNICIPAL", "PROJETO_ARQUITETONICO", "RELATORIO_FOTOGRAFICO",
+                "CERTIDAO_ZONEAMENTO", "VIABILIDADE_RESIDUOS", "VIABILIDADE_AGUA",
+                "VIABILIDADE_ESGOTO", "VIABILIDADE_ENERGIA", "DECLARACAO_ALAGAMENTO",
+                "DIRETRIZES_URBANISTICAS", "FORMULARIO", "FORMULARIO_ENQUADRAMENTO"
+            ):
+                return []
+
+        # 2. Documentos que são ART/RTT ou Projeto Urbanístico não recebem TR de conteúdo
+        if self.identificar_art_rtt(texto, nome_documento=nome_documento) is not None:
+            return []
+        if self._eh_projeto_urbanistico(texto):
+            return []
+
         score: dict[str, int] = {}
 
         def sinal(tr: str, pontos: int) -> None:
             if pontos > 0:
                 score[tr] = score.get(tr, 0) + pontos
 
+        if nome_documento:
+            nd = ProvedorLLMHeuristico._norm(nome_documento)
+            # Tipos técnicos claros no nome do arquivo (prioridade máxima)
+            if any(k in nd for k in ["vizinhanca", "eiv"]):
+                sinal("EIV", 10)
+            elif any(k in nd for k in ["cobertura vegetal", "lcv", "inventario florestal"]):
+                sinal("LCV", 10)
+            elif any(k in nd for k in ["inventario de fauna", "laudo de fauna", "fauna silvestre", "lfs", "fauna"]):
+                sinal("FAUNA", 10)
+            elif any(k in nd for k in ["laudo geologico", "estudo geologico", "geotecnico", "sondagem", "meio fisico"]):
+                sinal("SONDAGEM", 10)
+            elif any(k in nd for k in ["plano de controle", "pca"]):
+                sinal("PCA", 10)
+            elif any(k in nd for k in ["recuperacao de area degradada", "prad"]):
+                sinal("PRAD", 10)
+            elif any(k in nd for k in ["reposicao florestal", "rfo"]):
+                sinal("RFO", 10)
+            elif any(k in nd for k in [
+                "formulario", "declaracao", "certidao", "procuracao",
+                "contrato social", "cnh", "cnpj", "matricula", "croqui",
+                "diretrizes urbanisticas", "relatorio fotografico",
+                "viabilidade", "art", "rrt", "projeto urbanistico",
+                "projeto arquitetonico", "planta"
+            ]):
+                return []
+
+        t = ProvedorLLMHeuristico._norm(texto)
+
+        # 3. Pontua o conteúdo textual
+        # --- EIV (estudo de impacto de vizinhança) ---
+        if "impacto de vizinhanca" in t or "estudo de impacto de vizinhanca" in t:
+            sinal("EIV", 4)
+        elif "eiv" in t and ("vizinhanca" in t or "impacto" in t):
+            sinal("EIV", 2)
+
         # --- Sondagem / Meio Físico (RSCC ou Parcelamento) ---
+        if "laudo geologico" in t or "estudo geologico" in t:
+            sinal("SONDAGEM", 4)
         if "sondagem" in t or "trincheira" in t:
             sinal("SONDAGEM", 2)
-        # LAUDO GEOLÓGICO sem a palavra 'sondagem': ensaios de infiltração
-        # (duplo anel) e/ou auto-declaração no título são do TR Meio Físico
         if "infiltracao" in t:
             sinal("SONDAGEM", 2)
         if "geolog" in t or "geotecnic" in t:
@@ -930,6 +986,8 @@ class AuditorTecnico:
             sinal("PRAD", 1)
 
         # --- Fauna ---
+        if "inventario de fauna" in t or "laudo de fauna" in t or "fauna silvestre" in t:
+            sinal("FAUNA", 4)
         if any(k in t for k in ["mastofauna", "avifauna", "herpetofauna",
                                 "ictiofauna", "entomofauna"]):
             sinal("FAUNA", 2)
@@ -937,16 +995,12 @@ class AuditorTecnico:
             sinal("FAUNA", 1)
 
         # --- PCA ---
-        if "plano de controle ambiental" in t or "pca" in t:
+        if "plano de controle ambiental" in t:
+            sinal("PCA", 3)
+        elif "pca" in t and ("controle ambiental" in t or "medidas de controle" in t):
             sinal("PCA", 2)
         if "relatorios" in t and ("periodicidade" in t or "cronograma de relatorios" in t):
             sinal("PCA", 1)
-
-        # --- EIV (estudo de impacto de vizinhança) ---
-        if "impacto de vizinhanca" in t:
-            sinal("EIV", 2)
-        elif "eiv" in t:
-            sinal("EIV", 1)
 
         # --- LCV (laudo de cobertura vegetal) ---
         if ("laudo de cobertura vegetal" in t or "inventario florestal" in t
@@ -955,72 +1009,113 @@ class AuditorTecnico:
         if "cobertura vegetal" in t:
             sinal("LCV", 1)
 
+        # Se houver um TR dominante indicado no nome do documento (score >= 10),
+        # prioriza-o e suprime qualquer outro TR
+        if any(s >= 10 for s in score.values()):
+            ordem = ["SONDAGEM", "RFO", "PRAD", "FAUNA", "PCA", "EIV", "LCV"]
+            vencedores = [tr for tr in ordem if score.get(tr, 0) >= 10]
+            return [vencedores[0]]
+
         # Disputa RFO x LCV: mantém apenas o TR de melhor aderência
         if score.get("RFO") and score.get("LCV"):
             if score["RFO"] >= score["LCV"]:
-                score.pop("LCV")
+                score.pop("LCV", None)
             else:
-                score.pop("RFO")
+                score.pop("RFO", None)
 
-        # Disputa EIV x FAUNA: o TÍTULO/cabeçalho declara o que o documento É.
-        # Um EIV tem seção de fauna (e uma ART de laudo de fauna menciona o
-        # empreendimento) - o corpo não pode disparar o TR errado.
-        if score.get("EIV") and score.get("FAUNA"):
-            # vence o tipo que o documento DECLARA PRIMEIRO (título/abertura);
-            # empate na posição -> TR de melhor aderência
-            pos_eiv = min((p_ for p_ in (t.find("impacto de vizinhanca"),
-                                         t.find("eiv")) if p_ >= 0),
-                          default=10**9)
-            pos_fauna = min((p_ for p_ in (t.find("laudo de fauna"),
-                                           t.find("inventario de fauna"),
-                                           t.find("lfs"), t.find("mastofauna"),
-                                           t.find("avifauna"),
-                                           t.find("fauna")) if p_ >= 0),
-                            default=10**9)
-            if pos_eiv < pos_fauna:
-                score.pop("FAUNA")
-            elif pos_fauna < pos_eiv:
-                score.pop("EIV")
-            elif score["EIV"] >= score["FAUNA"]:
-                score.pop("FAUNA")
+        # Disputa EIV x outros laudos: o EIV é um estudo de impacto amplo
+        # que cita diagnóstico do meio físico (sondagem/geologia), biótico (fauna/flora)
+        # e medidas de controle (PCA). O corpo do EIV NÃO pode disparar TRs secundários.
+        if score.get("EIV"):
+            for outro in ("SONDAGEM", "PCA", "FAUNA", "LCV", "PRAD", "RFO"):
+                score.pop(outro, None)
+
+        # Disputa PCA x Meio Físico/Sondagem: o PCA menciona obras e solo, não é sondagem
+        if score.get("PCA") and score.get("SONDAGEM"):
+            if score["PCA"] >= score["SONDAGEM"]:
+                score.pop("SONDAGEM", None)
             else:
-                score.pop("EIV")
+                score.pop("PCA", None)
 
-        ordem = ["SONDAGEM", "RFO", "PRAD", "FAUNA", "PCA", "EIV", "LCV"]
-        return [tr for tr in ordem if score.get(tr, 0) > 0]
+        # Disputa Meio Físico/Sondagem x Fauna/Flora:
+        if score.get("SONDAGEM") and (score.get("FAUNA") or score.get("LCV")):
+            if score["SONDAGEM"] >= max(score.get("FAUNA", 0), score.get("LCV", 0)):
+                score.pop("FAUNA", None)
+                score.pop("LCV", None)
+            else:
+                score.pop("SONDAGEM", None)
+
+        # Ao final, cada arquivo técnico deve receber no máximo UM único TR (o de melhor aderência)
+        if not score:
+            return []
+
+        melhor_item = max(score.items(), key=lambda par: par[1])
+        if melhor_item[1] >= 2:
+            return [melhor_item[0]]
+        return []
 
     # ------------------------------------------------------------------
     # ART/RTT: documento PRÓPRIO (não é laudo - não recebe TR de conteúdo)
     # ------------------------------------------------------------------
     RE_NUM_ART_DOC = re.compile(
-        r"(?:\bART\b|\bRTT\b|\bRRT\b)\s*n?[ºo°.]?\s*[:\-]?\s*"
-        r"([0-9][0-9./\-]{5,15})", re.I)
+        r"(?:\bART\b|\bRTT\b|\bRRT\b)\s*(?:N[ºo°.]+|N[ÚU]MERO|DO\s+RRT)?\s*[:\-]?\s*([A-Za-z0-9./\-]*?\d{4,12}[A-Za-z0-9./\-]*)",
+        re.I)
     RE_NOME_ART_DOC = re.compile(
-        r"(?:contratad[oa]|respons[aá]vel t[eé]cnic[oa]|profissional|"
-        r"titular|t[eé]cnico respons[aá]vel)\s*(?:\(a\))?\s*[:\-]\s*"
+        r"(?:nome\s*(?:civil\s*/\s*social)?|(?:2\.?\s*)?nome|contratad[oa]|respons[aá]vel t[eé]cnic[oa]|profissional|"
+        r"titular|t[eé]cnico respons[aá]vel)\s*(?:\(a\))?\s*[:\-]?\s*"
         r"([^\n:]{4,60})", re.I)
 
     @classmethod
-    def identificar_art_rtt(cls, texto: str) -> Optional[dict]:
+    def identificar_art_rtt(cls, texto: str, nome_documento: Optional[str] = None) -> Optional[dict]:
         """Identifica se o documento É uma ART/RTT (anotação de responsabilidade),
         extraindo o NÚMERO e o NOME do profissional. Documentos escaneados de
         foto chegam aqui já com o texto extraído via OCR.
 
-        Exige o PAR forte: nº da ART declarado + (CREA/CAU ou RTT/anotação) -
+        Exige o PAR forte: nº da ART declarado + (CREA/CAU/CRBio ou RTT/anotação) -
         um laudo que apenas MENCIONA 'com ART de responsável técnico' não é
         uma ART. Retorna {'numero', 'nome'} ou None."""
+        if nome_documento:
+            nd = ProvedorLLMHeuristico._norm(nome_documento)
+            if any(k in nd for k in ["formulario", "eiv", "laudo", "inventario", "declaracao", "contrato", "certidao", "projeto urbanistico", "projeto arquitetonico"]):
+                return None
         t = ProvedorLLMHeuristico._norm(texto)
-        cabecalho = t[:600]
-        m_num = cls.RE_NUM_ART_DOC.search(texto)
-        tem_orgao = ("crea" in t or "cau" in t or "rtt" in cabecalho
-                     or "anotacao de responsabilidade" in t)
-        if not (m_num and tem_orgao):
+        tem_orgao = any(k in t for k in [
+            "crea", "cau", "crbio", "crbi", "confea", "mutua",
+            "anotacao de responsabilidade", "registro de responsabilidade", "caubr"
+        ])
+        tem_termo_art = bool(re.search(r"\b(art|rrt|rtt)\b", t))
+        if not (tem_orgao or tem_termo_art):
             return None
-        numero = re.sub(r"\D", "", m_num.group(1)) or None
+
+        m_num = cls.RE_NUM_ART_DOC.search(texto)
+        if not m_num:
+            return None
+
+        raw_num = m_num.group(1).strip()
+        m_dig = re.search(r"\d{6,12}", raw_num)
+        if m_dig:
+            numero = m_dig.group(0)
+        else:
+            numero = re.sub(r"\D", "", raw_num) or None
+
+        if not numero or len(numero) < 5:
+            return None
+
         nome = None
         m_nome = cls.RE_NOME_ART_DOC.search(texto)
         if m_nome:
-            nome = re.sub(r"\s+", " ", m_nome.group(1)).strip(" .;-") or None
+            cand = re.sub(r"\s+", " ", m_nome.group(1)).strip(" .;-")
+            cand = re.split(r"\b(?:cpf|cnpj|registro|titulo|nº)\b", cand, flags=re.I)[0].strip()
+            if len(cand) >= 4 and not any(w in cand.upper() for w in ["CONSELHO", "SERVIÇO", "CPF", "CNPJ", "MARIA JOAQUINA"]):
+                nome = cand
+
+        if not nome:
+            m_prof = re.search(r"([A-ZÀ-ÿ\s]{6,50})[\r\n]+\s*(?:Ge[óo]logo|Engenheir|Arquiteto|Biólogo|Biol[óo]g)", texto)
+            if m_prof:
+                cand = re.sub(r"\s+", " ", m_prof.group(1)).strip(" .;-")
+                if len(cand) >= 4 and not any(w in cand.upper() for w in ["CONSELHO", "SERVIÇO", "CPF", "CNPJ", "MARIA JOAQUINA", "EMPRESA"]):
+                    nome = cand
+
         return {"numero": numero, "nome": nome}
 
     def _conferir_art_com_formulario(
@@ -1063,24 +1158,40 @@ class AuditorTecnico:
             trecho_ativ = re.sub(r"\s+", " ", (texto or "")[max(0, idx - 80):
                                                             idx + 60]).strip()
 
-        for declarada in arts_formulario:
+        lista_declaradas = list(arts_formulario)
+        if atividade_lic:
+            lista_declaradas.sort(
+                key=lambda d: 0 if (str(d.get("secao")) == "8" or "licenciamento" in str(d.get("etapa", "")).lower()) else 1
+            )
+
+        for declarada in lista_declaradas:
             num_decl = re.sub(r"\D", "", declarada.get("numero") or "")
             bate_num = bool(numero_doc and num_decl
                             and numero_doc == num_decl)
             nome_decl = declarada.get("nome") or ""
-            tokens_decl = _tokens(nome_decl)[:3]
-            no_doc = bool(tokens_decl) and sum(
-                1 for tk in tokens_decl if tk in t_doc) >= max(
-                1, min(2, len(tokens_decl)))
-            no_extraido = bool(nome_doc and set(_tokens(nome_decl)[:3])
-                               & set(_tokens(nome_doc)))
+            tokens_decl = _tokens(nome_decl)
+            no_doc = False
+            if tokens_decl:
+                tokens_encontrados = sum(1 for tk in tokens_decl if tk in t_doc)
+                if tokens_encontrados >= 1:
+                    no_doc = True
+                else:
+                    palavras_doc = set(t_doc.split())
+                    for tk in tokens_decl:
+                        if any(SequenceMatcher(None, tk, pw).ratio() >= 0.8 for pw in palavras_doc):
+                            no_doc = True
+                            break
+            no_extraido = bool(nome_doc and (
+                set(_tokens(nome_decl)) & set(_tokens(nome_doc))
+                or SequenceMatcher(None, nome_decl.lower(), nome_doc.lower()).ratio() >= 0.75
+            ))
             bate_nome = no_doc or no_extraido
             if bate_num:
                 metricas["nome_localizado_no_documento"] = bool(no_doc)
                 if bate_nome:
-                    atribuida = (atividade_lic
-                                 and declarada.get("secao") == "8")
-                    if atribuida:
+                    eh_rt_licenciamento = (str(declarada.get("secao")) == "8"
+                                           or "licenciamento" in str(declarada.get("etapa", "")).lower())
+                    if atividade_lic and eh_rt_licenciamento:
                         return ResultadoValidacao(
                             documento_analisado=nome_documento, norma_tr=norma,
                             status=StatusValidacao.CONFORME, itens_reprovados=[],
@@ -1094,19 +1205,18 @@ class AuditorTecnico:
                                 "AMBIENTAL) do formulário")},
                             origem=OrigemAnalise.DETERMINISTICO)
                     aviso = []
-                    if declarada.get("secao") == "8" and not atividade_lic:
+                    if eh_rt_licenciamento and not atividade_lic:
                         aviso = [
                             "ART do responsável pelo licenciamento (seção 8) "
                             "NÃO menciona 'licenciamento ambiental' na "
                             "descrição da atividade - conferir se esta é a "
                             "ART da responsabilidade técnica pelo "
                             "licenciamento."]
-                    elif atividade_lic and declarada.get("secao") != "8":
-                        aviso = [
-                            "ART confere (nº e nome) e menciona 'licenciamento "
-                            "ambiental', mas pertence a outra etapa (seção "
-                            "4.3) - a ART do licenciamento deve ser a do RT da "
-                            "seção 8 do formulário."]
+                    elif atividade_lic and not eh_rt_licenciamento:
+                        metricas["observacao"] = (
+                            "ART confere (nº e nome) e menciona atividade no "
+                            "âmbito do licenciamento ambiental para a etapa "
+                            f"'{declarada.get('etapa') or 'declarada'}'.")
                     return ResultadoValidacao(
                         documento_analisado=nome_documento, norma_tr=norma,
                         status=(StatusValidacao.REVISAO_MANUAL if aviso
@@ -1193,19 +1303,34 @@ class AuditorTecnico:
         # ---- profissional que assina ----
         profissional_ok, prof_info = None, None
         m_art = self.RE_NUM_ART_DOC.search(texto or "")
-        num_doc = re.sub(r"\D", "", m_art.group(1)) if m_art else None
+        num_doc = None
+        if m_art:
+            m_dig = re.search(r"\d{6,12}", m_art.group(1))
+            num_doc = m_dig.group(0) if m_dig else re.sub(r"\D", "", m_art.group(1))
+
         for declarada in (arts_formulario or []):
             tokens = [x for x in ProvedorLLMHeuristico._norm(
-                declarada.get("nome") or "").split() if len(x) >= 4][:3]
-            bate_nome = bool(tokens) and sum(
-                1 for tk in tokens if tk in t_doc) >= max(
-                1, min(2, len(tokens)))
+                declarada.get("nome") or "").split() if len(x) >= 4]
+            bate_nome = False
+            if tokens:
+                if any(tk in t_doc for tk in tokens):
+                    bate_nome = True
+                else:
+                    palavras_doc = set(t_doc.split())
+                    for tk in tokens:
+                        if any(SequenceMatcher(None, tk, pw).ratio() >= 0.8 for pw in palavras_doc):
+                            bate_nome = True
+                            break
             num_decl = re.sub(r"\D", "", declarada.get("numero") or "")
             bate_num = bool(num_doc and num_decl and num_doc == num_decl)
-            if bate_nome or bate_num:
+            reg_decl = re.sub(r"[^\w]", "", (declarada.get("registro") or "").lower())
+            bate_reg = bool(reg_decl and len(reg_decl) >= 4 and reg_decl in re.sub(r"[^\w]", "", t_doc))
+
+            if bate_nome or bate_num or bate_reg:
                 profissional_ok = True
                 prof_info = (f"{declarada.get('nome') or '?'}"
-                             + (f" (ART nº {num_decl})" if bate_num else ""))
+                             + (f" (ART nº {num_decl})" if num_decl else "")
+                             + (f" [Registro {declarada.get('registro')}]" if declarada.get('registro') else ""))
                 break
         if not profissional_ok:
             reprov.append(
@@ -1253,19 +1378,28 @@ class AuditorTecnico:
     # o que cada tipo de laudo DECLARA SER no título -> TR que DEVE aplicar
     TR_ESPERADO_PELO_TITULO = [
         ("laudo geologico", "SONDAGEM"), ("estudo geologico", "SONDAGEM"),
-        ("geotecnico", "SONDAGEM"),
+        ("geotecnico", "SONDAGEM"), ("sondagem", "SONDAGEM"),
         ("cobertura vegetal", "LCV"), ("inventario florestal", "LCV"),
+        ("manejo da flora", "LCV"), ("lcv", "LCV"),
         ("inventario de fauna", "FAUNA"), ("laudo de fauna", "FAUNA"),
-        ("impacto de vizinhanca", "EIV"),
-        ("plano de controle ambiental", "PCA"),
-        ("recuperacao de area degradada", "PRAD"),
-        ("reposicao florestal", "RFO"),
+        ("fauna silvestre", "FAUNA"), ("lfs", "FAUNA"),
+        ("impacto de vizinhanca", "EIV"), ("eiv", "EIV"),
+        ("plano de controle ambiental", "PCA"), ("pca", "PCA"),
+        ("recuperacao de area degradada", "PRAD"), ("prad", "PRAD"),
+        ("reposicao florestal", "RFO"), ("rfo", "RFO"),
     ]
 
     @classmethod
-    def _tr_esperado_pelo_titulo(cls, texto: str) -> Optional[str]:
-        """O que o documento se DECLARA SER, lido no título/abertura."""
-        cabecalho = ProvedorLLMHeuristico._norm(texto)[:350]
+    def _tr_esperado_pelo_titulo(cls, texto: str, nome_documento: Optional[str] = None) -> Optional[str]:
+        """O que o documento se DECLARA SER, lido no nome do arquivo ou no título/abertura."""
+        if nome_documento:
+            nome_norm = ProvedorLLMHeuristico._norm(nome_documento)
+            if any(p in nome_norm for p in ("declaracao", "atestado", "certidao", "requerimento", "matricula", "contrato", "art", "rrt", "cnh", "cnpj", "croqui")):
+                return None
+            for palavra, tr in cls.TR_ESPERADO_PELO_TITULO:
+                if palavra in nome_norm:
+                    return tr
+        cabecalho = ProvedorLLMHeuristico._norm(texto)[:1200]
         for palavra, tr in cls.TR_ESPERADO_PELO_TITULO:
             if palavra in cabecalho:
                 return tr
@@ -1273,7 +1407,8 @@ class AuditorTecnico:
 
     def auditar_com_dupla_checagem(self, nome_documento: str, texto: str,
                                    arts_formulario: Optional[list[dict]] = None,
-                                   areas_formulario: Optional[dict] = None
+                                   areas_formulario: Optional[dict] = None,
+                                   tipo_documento: Optional[str] = None
                                    ) -> list[ResultadoValidacao]:
         """AUDITORIA TÉCNICA COM DUPLA CHECAGEM (sempre nesta fase):
         1ª e 2ª EXECUÇÃO - cada TR é revalidado; resultados divergentes
@@ -1281,9 +1416,9 @@ class AuditorTecnico:
         ROTEAMENTO - o que o documento DECLARA SER no título deve ter o TR
         correspondente aplicado; se não, sinaliza (nunca silencia)."""
         pass_1 = self.auditar_documento(nome_documento, texto, arts_formulario,
-                                        areas_formulario)
+                                        areas_formulario, tipo_documento=tipo_documento)
         pass_2 = self.auditar_documento(nome_documento, texto, arts_formulario,
-                                        areas_formulario)
+                                        areas_formulario, tipo_documento=tipo_documento)
 
         def chave(res: ResultadoValidacao):
             return (res.norma_tr, res.status.value,
@@ -1303,7 +1438,7 @@ class AuditorTecnico:
                         f"{r.norma_tr}={r.status.value}" for r in pass_2) or "vazia")],
                 origem=OrigemAnalise.DETERMINISTICO))
         else:
-            titulo = self._tr_esperado_pelo_titulo(texto)
+            titulo = self._tr_esperado_pelo_titulo(texto, nome_documento=nome_documento)
             aplicados = {("SONDAGEM" if "Meio Físico" in r.norma_tr
                           else "LCV" if "Cobertura" in r.norma_tr
                           else "FAUNA" if "Fauna" in r.norma_tr
@@ -1315,6 +1450,8 @@ class AuditorTecnico:
             for r in pass_1:
                 r.metricas = {**(r.metricas or {}),
                               "dupla_checagem": "OK - 2ª execução idêntica"}
+                if r.itens_reprovados:
+                    r.itens_reprovados = list(dict.fromkeys(r.itens_reprovados))
                 if titulo and titulo in aplicados:
                     r.metricas["tr_confirmado_pelo_titulo"] = (
                         "sim - documento declara ser do tipo coberto por "
@@ -1335,7 +1472,8 @@ class AuditorTecnico:
 
     def auditar_documento(self, nome_documento: str, texto: str,
                           arts_formulario: Optional[list[dict]] = None,
-                          areas_formulario: Optional[dict] = None
+                          areas_formulario: Optional[dict] = None,
+                          tipo_documento: Optional[str] = None
                           ) -> list[ResultadoValidacao]:
         """Aplica os TRs aplicáveis ao laudo e devolve os resultados.
 
@@ -1343,15 +1481,15 @@ class AuditorTecnico:
         recebem TR de conteúdo: são conferidas (número + nome do profissional)
         com as ARTs declaradas no formulário HTML (arts_formulario)."""
         resultados: list[ResultadoValidacao] = []
-        art_doc = self.identificar_art_rtt(texto)
-        if art_doc is not None:
-            resultados.append(self._conferir_art_com_formulario(
-                nome_documento, art_doc, arts_formulario, texto=texto))
-            return resultados
         # PROJETOS URBANÍSTICOS com plantas: dupla checagem profissional + áreas
         if self._eh_projeto_urbanistico(texto):
             resultados.append(self.conferir_projeto_urbanistico(
                 nome_documento, texto, arts_formulario, areas_formulario))
+            return resultados
+        art_doc = self.identificar_art_rtt(texto, nome_documento=nome_documento)
+        if art_doc is not None:
+            resultados.append(self._conferir_art_com_formulario(
+                nome_documento, art_doc, arts_formulario, texto=texto))
             return resultados
         if len(texto.strip()) < 40:
             resultados.append(ResultadoValidacao(
@@ -1364,7 +1502,8 @@ class AuditorTecnico:
             return resultados
 
         contexto = self._detectar_contexto_sondagem(texto)
-        for tr in self._rotear_trs(texto):
+        for tr in self._rotear_trs(texto, nome_documento=nome_documento,
+                                   tipo_documento=tipo_documento):
             try:
                 if tr == "SONDAGEM":
                     resultados.append(self.validar_sondagem_aterramento(
@@ -1413,7 +1552,7 @@ class AuditorTecnico:
                 "Identificação do empreendimento (razão social, CNPJ, logradouro, bairro)":
                     ["razao social", "cnpj", "logradouro", "bairro"],
                 "Caracterização geral e descrição do empreendimento":
-                    ["descricao do empreendimento", "caracterizacao geral", "justificativa do empreendimento"],
+                    ["descricao do empreendimento", "caracterizacao geral", "dados do empreendimento", "justificativa do empreendimento"],
                 "Geração de tráfego, carga e descarga": ["trafego", "carga e descarga"],
                 "Geração de ruídos e vibrações": ["ruidos", "vibracoes", "decibeis"],
                 "Medidas de controle/mitigação dos impactos":

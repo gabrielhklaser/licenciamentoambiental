@@ -115,7 +115,7 @@ class AgenteAdministrativo:
                         "detalhe": ("matrícula sem texto legível (escaneada e "
                                     "OCR indisponível) - conferir manualmente")}
             # o CNPJ da matrícula vem sob o rótulo 'Número de Inscrição'
-            # (formatado xx.xxx.xxx/xxxx-xx); prioriza a janela do rótulo
+            # ou no corpo (ex.: PROPRIETÁRIA: ... inscrita no CNPJ sob nº ...)
             priorizados: set[str] = set()
             m_rot = re.search(r"numero\s+de\s+inscric[aã]o(.{0,120})", texto,
                               re.I | re.S)
@@ -126,25 +126,46 @@ class AgenteAdministrativo:
             encontrados = {re.sub(r"\D", "", m.group(0))
                            for m in cls.RE_CNPJ_TEXTO.finditer(texto)}
             encontrados.discard("")
-            if priorizados:
-                encontrados = priorizados | (encontrados & priorizados)
-            if cnpj_form in encontrados:
+            # Também confere o documento específico de CNPJ anexado (se houver)
+            anexo_cnpj = next((a for a in anexados
+                               if re.search(r"\bcnpj\b|cart[aã]o.*cnpj|comprovante.*cnpj",
+                                            cls._normalizar(a))), None)
+            confere_doc_cnpj = False
+            if anexo_cnpj and textos.get(anexo_cnpj):
+                t_cnpj = textos.get(anexo_cnpj) or ""
+                cnpjs_doc = {re.sub(r"\D", "", m.group(0))
+                             for m in cls.RE_CNPJ_TEXTO.finditer(t_cnpj)}
+                if cnpj_form in cnpjs_doc:
+                    confere_doc_cnpj = True
+
+            # Se o CNPJ do formulário está nos priorizados, nos encontrados ou no doc CNPJ
+            if cnpj_form in priorizados or cnpj_form in encontrados:
                 status = "CONFERE"
+                cnpj_enc = cnpj_form
+                detalhe = "número de inscrição / CNPJ confere na matrícula"
+                if confere_doc_cnpj:
+                    detalhe += " e no Comprovante de Inscrição (Cartão CNPJ)"
+            elif confere_doc_cnpj:
+                status = "CONFERE"
+                cnpj_enc = cnpj_form
+                detalhe = f"CNPJ confere com o Comprovante de Inscrição (Cartão CNPJ: `{anexo_cnpj}`)"
+            elif priorizados:
+                status = "DIVERGENTE"
+                cnpj_enc = sorted(priorizados)[0]
+                detalhe = "CNPJ da matrícula DIFERENTE do formulário"
             elif encontrados:
                 status = "DIVERGENTE"
+                cnpj_enc = sorted(encontrados)[0]
+                detalhe = "CNPJ da matrícula DIFERENTE do formulário"
             else:
                 status = "NAO_ENCONTRADO"
+                cnpj_enc = None
+                detalhe = "CNPJ não localizado no texto da matrícula"
+
             return {"anexo": anexo_mat, "cnpj_formulario": cnpj_form,
-                    "cnpj_encontrado": (sorted(encontrados)[0]
-                                        if encontrados else None),
+                    "cnpj_encontrado": cnpj_enc,
                     "status": status,
-                    "detalhe": {"CONFERE": "número de inscrição confere com "
-                                           "o formulário",
-                                "DIVERGENTE": "CNPJ da matrícula DIFERENTE "
-                                              "do formulário",
-                                "NAO_ENCONTRADO": "CNPJ não localizado no "
-                                                  "texto da matrícula"
-                                }.get(status, status)}
+                    "detalhe": detalhe}
         except Exception as exc:  # noqa: BLE001
             logger.warning("Falha na conferência de CNPJ: %s", exc)
             return None
@@ -261,18 +282,35 @@ class AgenteAdministrativo:
         """Verifica se o documento exigido corresponde a algum arquivo anexado.
 
         Retorna o nome do arquivo correspondente ou None. Combina:
-            1) contenção de sub-cadeia normalizada;
+            1) contenção de sub-cadeia normalizada (com e sem prefixos/numeração);
             2) similaridade de strings (SequenceMatcher >= LIMIAR_SIMILARIDADE);
-            3) siglas do documento (PGRS, PCA, EIV...) presentes no nome do anexo;
-            4) casamento por palavras-chave (>= LIMIAR_PALAVRAS_CHAVE).
+            3) siglas específicas do documento (PGRS, PCA, EIV...) presentes no anexo;
+            4) casamento por palavras-chave relevantes (>= LIMIAR_PALAVRAS_CHAVE).
         """
         exigido_n = cls._normalizar(documento_exigido)
         # o FORMULÁRIO .htm/.html só atende à exigência do próprio formulário
         exigencia_de_formulario = "formulario" in exigido_n
-        # palavras-chave que definem o documento (ignora artigos/preposições curtas)
-        palavras = {p for p in exigido_n.split() if len(p) > 3}
+        exigido_limpo = re.sub(r"^\d+\s*[.)]\s*", "", exigido_n).strip()
+
+        # Palavras-chave que definem o documento (ignora artigos/preposições e boilerplate)
+        stopwords = {"desta", "deste", "dessas", "desses", "elaborado", "acordo",
+                     "secretaria", "responsavel", "tecnico", "habilitado", "acompanhado",
+                     "apresentar", "copia", "para", "como", "pelo", "pela"}
+        palavras = {p for p in exigido_limpo.split() if len(p) >= 4 and p not in stopwords}
+
         # siglas no texto original (ex.: 'Plano de Gerenciamento ... (PGRS)')
         siglas = {s.lower() for s in re.findall(r"\b[A-Z]{2,6}\b", documento_exigido or "")}
+        eh_exigencia_art = bool(re.search(
+            r"^\s*\d*\s*[.)]?\s*(?:c[óo]pia\s+da\s+)?(?:art|rrt)\b|"
+            r"anota[çc][ãa]o\s+de\s+responsabilidade\s+t[ée]cnica\s*(?:\(art\))?$|"
+            r"art\s+de\s+profissional", exigido_n))
+        if not eh_exigencia_art:
+            siglas.discard("art")
+            siglas.discard("rrt")
+            siglas.discard("tr")
+
+        melhor_anexo = None
+        melhor_score = 0.0
 
         for anexo in anexados:
             anexo_n = cls._normalizar(anexo)
@@ -281,19 +319,29 @@ class AgenteAdministrativo:
             if (not exigencia_de_formulario
                     and anexo.lower().endswith((".htm", ".html"))):
                 continue  # o formulário nao e documento apresentado
-            if exigido_n in anexo_n or anexo_n in exigido_n:
+
+            anexo_limpo = re.sub(r"^[_\-°º\d\s.]+", "", anexo_n).strip()
+
+            # 1) Contenção direta exata
+            if (exigido_n in anexo_n or anexo_n in exigido_n
+                    or (exigido_limpo and anexo_limpo and (exigido_limpo in anexo_limpo or anexo_limpo in exigido_limpo))):
                 return anexo
-            ratio = SequenceMatcher(None, exigido_n, anexo_n).ratio()
-            if ratio >= cls.LIMIAR_SIMILARIDADE:
-                return anexo
-            if siglas and any(s in anexo_n for s in siglas):
-                return anexo
-            # casamento por palavras-chave do documento exigido presentes no anexo
-            if palavras:
-                comuns = sum(1 for p in palavras if p in anexo_n)
-                if comuns / len(palavras) >= cls.LIMIAR_PALAVRAS_CHAVE:
-                    return anexo
-        return None
+
+            # 2) Similaridade e palavras-chave
+            ratio = max(SequenceMatcher(None, exigido_n, anexo_n).ratio(),
+                        SequenceMatcher(None, exigido_limpo, anexo_limpo).ratio())
+            sigla_presente = bool(siglas and any(s in anexo_n for s in siglas))
+            comuns = sum(1 for p in palavras if p in anexo_n or p in anexo_limpo) if palavras else 0
+            frac = comuns / len(palavras) if palavras else 0.0
+
+            score = ratio * 0.4 + frac * 0.6 + (0.35 if sigla_presente else 0.0)
+            if (ratio >= cls.LIMIAR_SIMILARIDADE or frac >= cls.LIMIAR_PALAVRAS_CHAVE
+                    or (sigla_presente and frac >= 0.25)):
+                if score > melhor_score:
+                    melhor_score = score
+                    melhor_anexo = anexo
+
+        return melhor_anexo
 
     # ------------------------------------------------------------------
     def auditar(self, dados_processo: dict,

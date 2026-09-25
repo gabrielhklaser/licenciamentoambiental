@@ -41,7 +41,7 @@ PADROES_TIPO: dict[str, list[str]] = {
                          "matricula nº", "registro de imoveis", "serventia e registro",
                          "certidao de inteiro teor"],
     "CNPJ": ["comprovante de inscricao e de situacao cadastral", "cartao cnpj",
-             "copia do cnpj", "comprovante cnpj"],
+             "copia do cnpj", "comprovante cnpj", "cnpj"],
     "CONTRATO_SOCIAL": ["contrato social", "estatuto social", "ata de nomeacao"],
     "ART": ["anotacao de responsabilidade tecnica", "art nº", "art n", "rrt nº", "rrt n",
             "anotacao de responsabilidade"],
@@ -373,7 +373,13 @@ class ValidadorDocumentos:
         """Checagens simples por tipo (elemento essencial presente no texto)."""
         texto_n = normalizar(texto)
         checagens = {
-            "CNPJ": [r"cnpj\s*[:nºo.]*\s*\d{2}[.]\d{3}[.]\d{3}[/]\d{4}-?\d{2}"],
+            "CNPJ": [
+                r"cnpj\s*[:nºo.]*\s*\d{2}[.]\d{3}[.]\d{3}[/]\d{4}-?\d{2}",
+                r"\b\d{2}[.]\d{3}[.]\d{3}[/]\d{4}-?\d{2}\b",
+                r"numero\s+de\s+inscricao\s*[:.\s]*\d{2}[.]\d{3}[.]\d{3}[/]\d{4}-?\d{2}",
+                r"cadastro\s+nacional\s+da\s+pessoa\s+juridica",
+                r"comprovante\s+de\s+inscricao\s+e\s+de\s+situacao\s+cadastral",
+            ],
             "ART": [r"\b(art|rrt)\s*n?[°ºo]?\s*\.?\s*[\w/\-]{4,}"],
             "ALVARA_BOMBEIROS": [r"(alvar[aá]|ppci|protocolo)"],
             "CONTRATO_SOCIAL": [r"(contrato social|estatuto|sociedade|quota)"],
@@ -406,6 +412,8 @@ class ValidadorDocumentos:
                         "conforme", "sobre", "pelo", "pela", "quando", "caso",
                         "ser", "deve", "apresentar", "copia"}
 
+    SIGLAS_RELEVANTES = {"cnpj", "art", "rrt", "eiv", "pca", "rfo", "prad", "pgrs", "lcv", "lfs"}
+
     def _nucleo_discriminante(self, exigencia: str) -> list[str]:
         """Primeiras palavras SIGNIFICATIVAS do nome do documento exigido
         (ex.: 'Diretrizes Urbanísticas Departamento Planejamento') - o que
@@ -414,7 +422,8 @@ class ValidadorDocumentos:
         ex_n = normalizar(re.sub(r"^\d+\s*[.)]\s*", "", exigencia))
         palavras = [p.strip("(),;:") for p in ex_n.split()]
         nucleo = [p for p in palavras
-                  if len(p) >= 5 and p not in self.STOPWORDS_NUCLEO]
+                  if (len(p) >= 4 or p in self.SIGLAS_RELEVANTES)
+                  and p not in self.STOPWORDS_NUCLEO]
         return nucleo[:4]
 
     def casar_exigencia(self, exigencia: str, arquivos: list[dict],
@@ -431,6 +440,7 @@ class ValidadorDocumentos:
         Entre os aderentes, vence o melhor score (similaridade + keywords).
         """
         ex_n = normalizar(exigencia)
+        ex_limpo = re.sub(r"^\d+\s*[.)]\s*", "", ex_n).strip()
         exigencia_de_formulario = "formulario" in ex_n
         nucleo = self._nucleo_discriminante(exigencia)
         # nomes de formulário variam demais para núcleo rígido (o guard
@@ -443,21 +453,26 @@ class ValidadorDocumentos:
             if sufixo in (".htm", ".html") and not exigencia_de_formulario:
                 continue  # formulário não é 'documento apresentado'
             nome_n = normalizar(nome)
+            nome_limpo = re.sub(r"^[_\-°º\d\s.]+", "", nome_n)
             texto_n = normalizar((arq.get("texto") or "")[:1200])
             if exige_nucleo:
                 # 1ª palavra do núcleo OBRIGATÓRIA + ao menos mais uma das
                 # seguintes (tolera nomes de arquivo resumidos, ex.:
                 # 'matricula_imovel.jpg' para 'Cópia da matrícula atualizada')
-                tem_primeira = nucleo[0] in nome_n or nucleo[0] in texto_n
-                tem_apoio = any(p in nome_n or p in texto_n
+                tem_primeira = (nucleo[0] in nome_n or nucleo[0] in nome_limpo
+                                or nucleo[0] in texto_n)
+                tem_apoio = any(p in nome_n or p in nome_limpo or p in texto_n
                                 for p in nucleo[1:4])
                 if not (tem_primeira and tem_apoio):
                     continue  # núcleo ausente: não é este documento
-            palavras = [p for p in ex_n.split() if len(p) >= 5]
-            pontos = self._similaridade(exigencia, nome)
+            palavras = [p for p in ex_limpo.split()
+                        if (len(p) >= 4 or p in self.SIGLAS_RELEVANTES)
+                        and p not in self.STOPWORDS_NUCLEO]
+            pontos = max(self._similaridade(exigencia, nome),
+                         self._similaridade(ex_limpo, nome_limpo))
             for palavra in palavras:
-                if palavra in nome_n:
-                    pontos += 0.18
+                if palavra in nome_limpo or palavra in nome_n:
+                    pontos += 0.20
                 elif palavra in texto_n:
                     pontos += 0.08
             candidatos.append((pontos, nome))

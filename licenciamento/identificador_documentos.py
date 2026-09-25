@@ -31,8 +31,21 @@ from typing import Any, Optional
 from licenciamento.validador_documentos import PADROES_TIPO
 
 PADROES_TIPO_EXTRA: dict[str, list[str]] = {
+    "CNPJ": ["cnpj", "cartao cnpj", "comprovante cnpj", "situacao cadastral"],
+    "FAUNA": ["inventario de fauna", "laudo de fauna", "fauna silvestre", "fauna", "lfs"],
+    "LCV": ["laudo de cobertura vegetal", "cobertura vegetal", "inventario florestal", "lcv"],
+    "SONDAGEM": ["laudo geologico", "laudo geotecnico", "sondagem", "ensaios de infiltracao", "infiltracao"],
+    "DIRETRIZES_URBANISTICAS": ["diretrizes urbanisticas", "departamento de planejamento"],
+    "CERTIDAO_ZONEAMENTO": ["certidao zoneamento", "zoneamento afirmando", "zoneamento loteavel", "zoneamento"],
+    "VIABILIDADE_RESIDUOS": ["coleta de residuos", "limpeza urbana", "viabilidade de coleta"],
+    "VIABILIDADE_AGUA": ["abastecimento de agua", "viabilidade de agua", "corsan agua"],
+    "VIABILIDADE_ESGOTO": ["esgotamento sanitario", "viabilidade de esgotamento", "corsan esgoto"],
+    "VIABILIDADE_ENERGIA": ["energia eletrica", "viabilidade de energia", "rge"],
+    "DECLARACAO_ALAGAMENTO": ["alagamento", "inundacao", "ocorrencia de alagamento"],
+    "PROJETO_URBANISTICO": ["projeto urbanistico", "planta das vias de acesso", "projeto arquitetonico"],
+    "RELATORIO_FOTOGRAFICO": ["relatorio fotografico", "relatorio tecnico fotografico"],
     "PLANTA_LOCALIZACAO": ["planta de localizacao", "planta de situacao",
-                           "plano de localizacao", "planta localizacao"],
+                           "plano de localizacao", "planta localizacao", "croqui da area"],
     "LICENCA_PREVIA": ["licenca previa", "copia da licenca previa"],
     "LICENCA_INSTALACAO": ["licenca de instalacao", "copia da licenca de instalacao"],
     "LICENCA_OPERACAO": ["licenca de operacao", "copia da licenca de operacao"],
@@ -49,11 +62,13 @@ ASSINATURAS_CONTEUDO: dict[str, list[str]] = {
                          r"serventia\s+e\s+registro", r"certid[ãa]o\s+de\s+inteiro\s+teor",
                          r"matr[íi]cula\s+do\s+im[óo]vel"],
     "CNPJ": [r"\bcnpj\b", r"receita\s+federal", r"comprovante\s+de\s+inscri[çc][ãa]o",
-             r"situa[çc][ãa]o\s+cadastral", r"cart[ãa]o\s+cnpj"],
+             r"situa[çc][ãa]o\s+cadastral", r"cart[ãa]o\s+cnpj", r"numero\s+de\s+inscricao"],
     "CONTRATO_SOCIAL": [r"contrato\s+social", r"estatuto\s+social", r"ata\s+de\s+nomea[çc][ãa]o",
                         r"junta\s+comercial"],
-    "ART": [r"\bart\b", r"anota[çc][ãa]o\s+de\s+responsabilidade",
-            r"\bcrea\b|\bcau\b", r"respons[áa]vel\s+t[ée]cnic"],
+    "ART": [r"\b(?:art|rrt)\s*n?[ºo°.]?\s*[:\-]?\s*[\d./\-]{4,}",
+            r"anota[çc][ãa]o\s+de\s+responsabilidade\s+t[ée]cnica",
+            r"registro\s+de\s+responsabilidade\s+t[ée]cnica",
+            r"conselho\s+regional\s+de\s+engenharia|conselho\s+de\s+arquitetura"],
     "PGRS": [r"plano\s+de\s+gerenciamento", r"res[íi]duos?\s+s[óo]lidos",
              r"\bpgrs\b"],
     "ALVARA_BOMBEIROS": [r"corpo\s+de\s+bombeiros", r"alvar[áa]\s+(do\s+)?(corpo\s+de\s+)?bombeiros",
@@ -71,23 +86,39 @@ ASSINATURAS_CONTEUDO: dict[str, list[str]] = {
 }
 
 # Palavras-chave que ligam o TEXTO da exigência (checklist) ao tipo
-RE_EXIGENCIA_TIPO: list[tuple[str, str]] = [
+# NB: tipos específicos de laudos/estudos DEVEM vir ANTES de ART, pois a frase
+# '... elaborado de acordo com o TR desta secretaria, com ART de responsável...'
+# cita ART apenas como acessório, e não como tipo principal do documento!
+RE_EXIGENCIA_TIPO: list[tuple[str, re.Pattern]] = [
+    ("EIV", re.compile(r"\beiv\b|impacto\s+de\s+vizinhan[çc]a", re.I)),
+    ("FAUNA", re.compile(r"invent[áa]rio\s+de\s+fauna|fauna\s+silvestre|\bfauna\b|\blfs\b", re.I)),
+    ("LCV", re.compile(r"cobertura\s+vegetal|invent[áa]rio\s+florestal|laudo\s+vegetal|\blcv\b", re.I)),
+    ("SONDAGEM", re.compile(r"laudo\s+geol[óo]gico|geot[ée]cnic|sondagem|ensaio.*infiltra[çc][ãa]o", re.I)),
     ("MATRICULA_IMOVEL", re.compile(r"matr[íi]cula\s+do\s+im[óo]vel|matr[íi]cula\s+atualizada|"
                                     r"c[óo]pia\s+da\s+matr[íi]cula|\bmatr[íi]cula\b", re.I)),
-    ("ART", re.compile(r"anota[çc][ãa]o\s+de\s+responsabilidade|\bART\b", re.I)),
     ("CNPJ", re.compile(r"\bcnpj\b|cpf\s*e\s*cnpj|cart[ãa]o\s+cnpj|comprovante\s+de\s+inscri[çc][ãa]o", re.I)),
-    ("PGRS", re.compile(r"\bpgrs\b|plano\s+de\s+gerenciamento", re.I)),
-    ("ALVARA_BOMBEIROS", re.compile(r"bombeiro|\bppci\b", re.I)),
+    ("CONTRATO_SOCIAL", re.compile(r"contrato\s+social|estatuto\s+social", re.I)),
+    ("CERTIDAO_ZONEAMENTO", re.compile(r"certid[ãa]o\s+(?:de\s+)?zoneamento|zoneamento", re.I)),
+    ("DIRETRIZES_URBANISTICAS", re.compile(r"diretrizes\s+urban[íi]sticas", re.I)),
+    ("VIABILIDADE_RESIDUOS", re.compile(r"viabilidade.*(?:limpeza|res[íi]duos)", re.I)),
+    ("VIABILIDADE_AGUA", re.compile(r"viabilidade.*[áa]gua|corsan.*[áa]gua", re.I)),
+    ("VIABILIDADE_ESGOTO", re.compile(r"viabilidade.*esgoto|corsan.*esgoto", re.I)),
+    ("VIABILIDADE_ENERGIA", re.compile(r"viabilidade.*energia|rge", re.I)),
+    ("DECLARACAO_ALAGAMENTO", re.compile(r"alagamento|inunda[çc][ãa]o", re.I)),
+    ("PROJETO_URBANISTICO", re.compile(r"projeto\s+(?:arquitet[ôo]nico|urban[íi]stico)", re.I)),
     ("PLANTA_LOCALIZACAO", re.compile(r"planta\s+de\s+(localiza[çc][ãa]o|situa[çc][ãa]o)|"
                                       r"plano\s+de\s+localiza[çc][ãa]o", re.I)),
+    ("PGRS", re.compile(r"\bpgrs\b|plano\s+de\s+gerenciamento", re.I)),
+    ("ALVARA_BOMBEIROS", re.compile(r"bombeiro|\bppci\b", re.I)),
     ("LICENCA_PREVIA", re.compile(r"licen[çc]a\s+pr[ée]via", re.I)),
     ("LICENCA_INSTALACAO", re.compile(r"licen[çc]a\s+de\s+instala[çc][ãa]o", re.I)),
     ("LICENCA_OPERACAO", re.compile(r"licen[çc]a\s+de\s+opera[çc][ãa]o", re.I)),
     ("PCA", re.compile(r"\bpca\b|plano\s+de\s+controle\s+ambiental", re.I)),
     ("RCA", re.compile(r"\brca\b|relat[óo]rio\s+de\s+controle\s+ambiental", re.I)),
-    ("EIV", re.compile(r"\beiv\b|impacto\s+de\s+vizinhan[çc]a", re.I)),
-    ("CONTRATO_SOCIAL", re.compile(r"contrato\s+social|estatuto\s+social", re.I)),
     ("PROJETO_EXECUTIVO", re.compile(r"projeto\s+(executivo|t[ée]cnic|construC?[çc][ãa]o|aprovado)", re.I)),
+    ("ART", re.compile(r"^\s*\d*\s*[.)]?\s*(?:c[óo]pia\s+da\s+)?(?:art|rrt)\b|"
+                      r"anota[çc][ãa]o\s+de\s+responsabilidade\s+t[ée]cnica\s*(?:\(art\))?$|"
+                      r"art\s+de\s+profissional", re.I)),
 ]
 
 
@@ -222,6 +253,15 @@ class IdentificadorDocumentos:
         try:
             nome_n = normalizar_nome(nome_arquivo)
             if not nome_n or not tipo:
+                return False
+            # NUNCA aprender ART para arquivos de formulários, projetos, laudos ou estudos
+            if tipo == "ART" and any(k in nome_n for k in [
+                    "formulario", "projeto", "laudo", "estudo", "inventario",
+                    "diretriz", "certidao", "declaracao", "planta", "croqui",
+                    "matricula", "relatorio", "contrato"]):
+                return False
+            if any(nome_arquivo.lower().endswith(ext)
+                   for ext in [".htm", ".html", ".dwg", ".kmz", ".kml", ".xlsx"]):
                 return False
             if any(i.get("nome") == nome_n for i in self.aprendidos):
                 return False
