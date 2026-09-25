@@ -652,6 +652,30 @@ def pagina_analise() -> None:
     st.divider()
 
     # --------------------------------------------------------------
+    # CONSOLIDAÇÃO DAS ETAPAS DO PROCESSO (Dupla checagem integrada)
+    # --------------------------------------------------------------
+    st.subheader("📊 Consolidação das Etapas do Processo")
+    col_e1, col_e2, col_e3, col_e4 = st.columns(4)
+    with col_e1:
+        st_adm = admin.get("status_geral", "—")
+        cor_adm = "normal" if st_adm == "LIBERADO" else "off"
+        rotulo_adm = "✅ Regular" if st_adm == "LIBERADO" else ("🚫 Bloqueado" if st_adm == "BLOQUEADO" else "🟡 Pendências")
+        st.metric("1. Etapa Administrativa", rotulo_adm, help="Conferência de formulário, CNPJ/CPF e checklist de documentos obrigatórios.")
+    with col_e2:
+        tot_urm = financeiro.get("total_urm")
+        rotulo_fin = f"✅ {_fmt_urm(tot_urm)} URM" if tot_urm is not None else "⚠️ Indisponível"
+        st.metric("2. Etapa Financeira", rotulo_fin, help="Enquadramento do porte, potencial poluidor e cálculo de taxas municipais.")
+    with col_e3:
+        qtd_pend = resumo.get("PENDENTE", 0) + len([t for t in tecnicos if t.status.value in ("PENDENTE", "REVISAO_MANUAL")])
+        rotulo_tec = "✅ Conforme" if qtd_pend == 0 else f"🟡 {qtd_pend} pendência(s)"
+        st.metric("3. Etapa Técnica", rotulo_tec, help="Auditoria de Termos de Referência, laudos, ARTs e projetos.")
+    with col_e4:
+        rotulo_par = "✅ Deferimento" if qtd_pend == 0 and st_adm == "LIBERADO" else "🟡 Com Pendências"
+        st.metric("4. Parecer Técnico", rotulo_par, help="Parecer técnico compilado e consolidado para emissão.")
+
+    st.divider()
+
+    # --------------------------------------------------------------
     # QUADRO RESUMO DA DOCUMENTAÇÃO
     # --------------------------------------------------------------
     st.subheader("🗂️ Quadro resumo da documentação")

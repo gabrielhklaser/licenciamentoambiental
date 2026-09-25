@@ -345,3 +345,27 @@ def test_casamento_tolerante_a_nome_resumido():
     assert validador.casar_exigencia(
         "Cópia da matrícula atualizada do imóvel", [imagem]) == \
         "matricula_imovel.jpg"
+
+
+def test_leitor_imagem_extracao_ocr():
+    """Verifica a extração OCR via LeitorImagem e ValidadorDocumentos em imagem sintética."""
+    import io
+    from PIL import Image, ImageDraw
+    from licenciamento.leitor_imagem import LeitorImagem
+    from licenciamento.validador_documentos import ValidadorDocumentos
+
+    img = Image.new("RGB", (500, 120), color=(255, 255, 255))
+    d = ImageDraw.Draw(img)
+    d.text((20, 40), "COMPROVANTE DE CNPJ 12.345.678/0001-90", fill=(0, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    conteudo = buf.getvalue()
+
+    texto, info = LeitorImagem.extrair_texto(conteudo)
+    assert "12.345.678/0001-90" in texto or "CNPJ" in texto
+    assert info["sucesso"] is True
+
+    validador = ValidadorDocumentos()
+    texto_val = validador.extrair_texto("cartao_cnpj.png", conteudo)
+    assert "12.345.678/0001-90" in texto_val or "CNPJ" in texto_val
+

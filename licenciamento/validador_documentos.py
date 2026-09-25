@@ -167,21 +167,18 @@ class ValidadorDocumentos:
 
     @staticmethod
     def _texto_ocr(conteudo: bytes) -> str:
-        """OCR de imagens (fotos/escaneamentos) - OPCIONAL.
-
-        Requer `pytesseract` + binário `tesseract` (idealmente com idioma
-        'por'). Em servidores sem OCR devolve string vazia e o documento é
-        classificado para conferência manual (com preview no painel).
+        """OCR de imagens (fotos/escaneamentos).
+        
+        Utiliza LeitorImagem com RapidOCR/ONNX em CPU (sem necessidade de binários de sistema)
+        e pré-processamento via Pillow, com fallback gracioso para pytesseract se presente.
+        Em caso de OCR indisponível, devolve string vazia para conferência manual.
         """
         try:
-            from PIL import Image
-            import pytesseract  # opcional - ver requirements.txt
-            imagem = Image.open(io.BytesIO(conteudo))
-            try:
-                return pytesseract.image_to_string(imagem, lang="por") or ""
-            except Exception:  # noqa: BLE001 - idioma 'por' ausente
-                return pytesseract.image_to_string(imagem) or ""
-        except Exception:  # noqa: BLE001 - OCR indisponível não derruba a análise
+            from licenciamento.leitor_imagem import LeitorImagem
+            texto, _ = LeitorImagem.extrair_texto(conteudo)
+            return texto
+        except Exception as exc:  # noqa: BLE001 - OCR indisponível não derruba a análise
+            logger.warning("Falha ao extrair OCR de imagem: %s", exc)
             return ""
 
     # ==================================================================

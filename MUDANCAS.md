@@ -1,3 +1,18 @@
+## [2026-09-25] SKILL DOCUMENT-IMAGE-ANALYSIS, OCR RAPIDOCR PARA IMAGENS, CONSOLIDAÇÃO DAS ETAPAS E RESILIÊNCIA WINDOWS
+- **Arquivos:** `.claude/skills/document-image-analysis/SKILL.md` (NOVO), `licenciamento/leitor_imagem.py` (NOVO), `licenciamento/validador_documentos.py` (_texto_ocr atualizado com RapidOCR e Pillow), `app.py` (painel executivo de Consolidação das Etapas do Processo), `ferramentas/ingestar_pdfs.py` (sys.stdout UTF-8 resiliente no Windows), `tests/test_validador_documentos.py` (+1 teste de OCR de imagem).
+- **O quê:** 
+  1. Análise de skills de marketplaces e repositórios para checagem documental e OCR;
+  2. Implementação da skill `document-image-analysis` (.claude/skills/document-image-analysis/SKILL.md) e do módulo `LeitorImagem` com RapidOCR/ONNX em CPU e pré-processamento Pillow para formatos de imagem (.png, .jpg, .jpeg, .webp, .tiff, .bmp);
+  3. Atualização do `ValidadorDocumentos._texto_ocr` para utilizar o novo pipeline de OCR de imagens com fallback gracioso;
+  4. Consolidação das 4 etapas (Administrativa, Financeira, Técnica e Parecer) em painel executivo com dupla checagem integrada no `app.py`;
+  5. Correção de encoding UTF-8 no CLI de promoção de drafts no Windows (`ingestar_pdfs.py`);
+  6. Bateria completa de testes aprovada (122 passed).
+- **Por quê:** Solicitação do usuário para integrar skill de checagem documental e imagem, fazer dupla checagem em todas as etapas, consolidar as etapas e sincronizar via Arena AI e GitHub.
+- **Como reverter:** `git revert <hash deste commit>`.
+- **Estado:** 122 testes OK (100% verde).
+
+---
+
 ## AUDITORIA DE SEGURANÇA — skills security-audit + senior-security
 
 **Arquivos:** `licenciamento/seguranca.py` (NOVO), `app.py` (9 pontos
