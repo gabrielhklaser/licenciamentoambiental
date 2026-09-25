@@ -1,3 +1,19 @@
+## [2026-09-25] INTEGRAÇÃO DAS SKILLS GABEBRAIN: LEITURA ESTRUTURAL DE PDFs, OCR CALIBRADO E RASTREAMENTO DE PÁGINAS
+- **Arquivos:** `licenciamento/leitor_pdf.py` (métodos GabeBrain 02, 07 e 17 integrados), `licenciamento/esquemas_tecnicos.py` (+pagina_referencia, tokens_estimados, documento_extenso), `licenciamento/auditor_tecnico.py` (rastreamento de página nos achados técnicos), `tests/test_validador_documentos.py` (+5 testes unitários de habilidades GabeBrain).
+- **O quê:**
+  1. Extração página a página com marcadores `[[pag N]]` via PyMuPDF (método `02_extrair_texto.py` da skill `biblioteca-pesquisavel`);
+  2. Utilitários de leitura seletiva/fatiada (`extrair_paginas`) e localização precisa de página de evidências (`localizar_pagina`);
+  3. Detecção de camada de texto corrompida (mapeamento quebrado de fontes / mojibake) que força OCR mesmo quando há texto nativo aparente (método `07_ocr_escaneados.py`);
+  4. OCR calibrado do GabeBrain: renderização a 300 DPI em escala de cinza e binarização adaptativa (`limiar = max(1, int(img.mean()) - 90)`);
+  5. Extração estrutural gratuita de sumário/ToC via PyMuPDF (`doc.get_toc()`), validação de consistência (`outline_util`) e identificação de seções quentes técnicas e documentos extensos (>50k tokens) (método `17_estrutura_documento.py` da skill `biblioteca-mapa-documento`);
+  6. Aplicação da regra de ouro da skill `biblioteca-triagem`: *"Todo achado precisa de página"* — os agentes técnicos (`AuditorTecnico`) e esquemas de dados passam a registrar e exibir `[pág. N]` em cada item e trecho de referência;
+  7. Bateria completa de testes ampliada de 122 para 127 testes aprovados (100% verde).
+- **Por quê:** Solicitação do usuário para utilizar as novas skills instaladas no GabeBrain para leitura de documentos e implementar as melhorias no código.
+- **Como reverter:** `git revert <hash deste commit>`.
+- **Estado:** 127 testes OK (100% verde).
+
+---
+
 ## [2026-09-25] SKILL DOCUMENT-IMAGE-ANALYSIS, OCR RAPIDOCR PARA IMAGENS, CONSOLIDAÇÃO DAS ETAPAS E RESILIÊNCIA WINDOWS
 - **Arquivos:** `.claude/skills/document-image-analysis/SKILL.md` (NOVO), `licenciamento/leitor_imagem.py` (NOVO), `licenciamento/validador_documentos.py` (_texto_ocr atualizado com RapidOCR e Pillow), `app.py` (painel executivo de Consolidação das Etapas do Processo), `ferramentas/ingestar_pdfs.py` (sys.stdout UTF-8 resiliente no Windows), `tests/test_validador_documentos.py` (+1 teste de OCR de imagem).
 - **O quê:** 

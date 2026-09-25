@@ -421,6 +421,11 @@ class AuditorTecnico:
                 r"ensaios?\s+de\s+permeabilidade[^.;\d]{0,40}?(\d{1,2})", re.I), texto)
         imperm = bool(re.search(r"impermeabiliza|argila\s+compactada", texto, re.I))
 
+        # Localização de página conforme GabeBrain
+        from .leitor_pdf import LeitorPDF
+        m_evid = re.search(r"len[çc]ol\s+fre[áa]tico|cota\s+base|sondagem|furos?", texto, re.I)
+        pag = LeitorPDF.localizar_pagina(texto, m_evid.start()) if m_evid else None
+
         return MetricasSondagem(
             contexto=contexto,
             profundidade_lencol_m=prof, cota_base_aterro_m=cota,
@@ -428,7 +433,8 @@ class AuditorTecnico:
             furos_informados=int(furos) if furos is not None else None,
             profundidade_investigacao_m=prof_inv,
             ensaios_permeabilidade_informados=int(ensaios) if ensaios is not None else None,
-            impermeabilizacao_prevista=imperm if (imperm or "aterro" in ProvedorLLMHeuristico._norm(texto)) else None)
+            impermeabilizacao_prevista=imperm if (imperm or "aterro" in ProvedorLLMHeuristico._norm(texto)) else None,
+            pagina_referencia=pag)
 
     @staticmethod
     def _densidade_proposta(texto: str) -> Optional[float]:
@@ -473,6 +479,11 @@ class AuditorTecnico:
         falha = self._num(re.compile(
             r"(\d{1,2})\s*%?\s*de\s*falha", re.I), texto) \
             or self._num(re.compile(r"falha[^\n.;]{0,40}?(\d{1,2})\s*%", re.I), texto)
+
+        from .leitor_pdf import LeitorPDF
+        m_rfo = re.search(r"(\d{1,5})\s*indiv[íi]duos?\s+nativos|mudas?\s+nativas|reposicao\s+florestal", texto, re.I)
+        pag = LeitorPDF.localizar_pagina(texto, m_rfo.start()) if m_rfo else None
+
         return MetricasRFO(
             nativos_suprimidos=int(nativos) if nativos is not None else None,
             exoticos_suprimidos=int(exoticos) if exoticos is not None else None,
@@ -482,7 +493,8 @@ class AuditorTecnico:
             especies_plantadas=int(especies_plantadas) if especies_plantadas is not None else None,
             especies_suprimidas=int(especies_suprimidas) if especies_suprimidas is not None else None,
             monitoramento_anos=int(monitoramento) if monitoramento is not None else None,
-            percentual_falha_admitido=falha)
+            percentual_falha_admitido=falha,
+            pagina_referencia=pag)
 
     # ==========================================================================
     # CAMADA DETERMINÍSTICA - regras puras (funções testáveis)
@@ -633,12 +645,17 @@ class AuditorTecnico:
             reprovados.append("Área do projeto (ha) não identificada no laudo - não é possível "
                               "verificar o critério amostral de sondagens e ensaios.")
 
+        trecho_ref = " | ".join(t for t in trechos if t)
+        if metricas.pagina_referencia:
+            trecho_ref = f"[pág. {metricas.pagina_referencia}] {trecho_ref}"
+
         return ResultadoValidacao(
             documento_analisado=nome_documento,
             norma_tr=norma,
             status=StatusValidacao.CONFORME if not reprovados else StatusValidacao.PENDENTE,
             itens_reprovados=reprovados,
-            trecho_referencia=" | ".join(t for t in trechos if t),
+            trecho_referencia=trecho_ref,
+            pagina_referencia=metricas.pagina_referencia,
             metricas=metricas.model_dump(),
             origem=OrigemAnalise.DETERMINISTICO)
 
@@ -718,12 +735,17 @@ class AuditorTecnico:
                 f"Percentual de falha admitido ({self._fmt_br(metricas.percentual_falha_admitido)}%) "
                 f"acima do máximo de {self._fmt_br(falha_max)}% estabelecido no TR RFO (item 3.7).")
 
+        trecho_ref = " | ".join(t for t in trechos if t)
+        if metricas.pagina_referencia:
+            trecho_ref = f"[pág. {metricas.pagina_referencia}] {trecho_ref}"
+
         return ResultadoValidacao(
             documento_analisado=nome_documento,
             norma_tr="TR Reposição Florestal Obrigatória (RFO)",
             status=StatusValidacao.CONFORME if not reprovados else StatusValidacao.PENDENTE,
             itens_reprovados=reprovados,
-            trecho_referencia=" | ".join(t for t in trechos if t),
+            trecho_referencia=trecho_ref,
+            pagina_referencia=metricas.pagina_referencia,
             metricas=metricas.model_dump(),
             origem=OrigemAnalise.DETERMINISTICO)
 
@@ -731,7 +753,8 @@ class AuditorTecnico:
     # CAMADA SEMÂNTICA - LLM com saída estruturada (Pydantic)
     # ==========================================================================
     def _concluir_llm(self, nome_documento: str, norma_tr: str,
-                      veredito: BaseModel, reprovacao: str | list[str]) -> ResultadoValidacao:
+                      veredito: BaseModel, reprovacao: str | list[str],
+                      texto: Optional[str] = None) -> ResultadoValidacao:
         dados = veredito.model_dump()
         if isinstance(reprovacao, list):
             itens = [r.strip() for r in reprovacao if r and r.strip()]
@@ -739,13 +762,23 @@ class AuditorTecnico:
         else:
             conforme = not reprovacao
             itens = [] if conforme else [reprovacao.strip()]
+
+        trecho = (dados.get("trecho_cronograma") or dados.get("trecho_metodologia")
+                  or dados.get("trecho_monitoramento") or "")
+        pag = None
+        if texto and trecho:
+            from .leitor_pdf import LeitorPDF
+            pag = LeitorPDF.localizar_pagina(texto, trecho)
+            if pag is not None and f"[pág. {pag}]" not in trecho:
+                trecho = f"[pág. {pag}] {trecho}"
+
         return ResultadoValidacao(
             documento_analisado=nome_documento,
             norma_tr=norma_tr,
             status=StatusValidacao.CONFORME if conforme else StatusValidacao.PENDENTE,
             itens_reprovados=itens,
-            trecho_referencia=(dados.get("trecho_cronograma") or dados.get("trecho_metodologia")
-                               or dados.get("trecho_monitoramento") or ""),
+            trecho_referencia=trecho,
+            pagina_referencia=pag,
             metricas=dados,
             origem=OrigemAnalise.LLM if isinstance(self.provedor, ProvedorLLMLangChain)
             else OrigemAnalise.HEURISTICO_LOCAL)
@@ -775,7 +808,7 @@ class AuditorTecnico:
         elif veredito.periodo_monitoramento_anos < minimo_anos:
             reprovacoes.append(f"Período de monitoramento proposto ({veredito.periodo_monitoramento_anos} anos) inferior ao mínimo de {minimo_anos} anos (TR PRAD, item 5.7).")
         return self._concluir_llm(nome_documento, "TR PRAD - Áreas Degradadas",
-                                  veredito, reprovacoes)
+                                  veredito, reprovacoes, texto=texto)
 
     def validar_fauna(self, nome_documento: str, texto: str) -> ResultadoValidacao:
         """TR Laudo de Fauna Silvestre: busca ativa + passiva por grupo, primavera/
@@ -804,7 +837,7 @@ class AuditorTecnico:
                 and not veredito.suficiencia_amostral_curva_coletor:
             reprovacoes.append("Suficiência amostral não determinada pela estabilização da curva do coletor, conforme exige o TR LFS.")
         return self._concluir_llm(nome_documento, "TR Laudo de Fauna Silvestre (LFS)",
-                                  veredito, reprovacoes)
+                                  veredito, reprovacoes, texto=texto)
 
     def validar_pca(self, nome_documento: str, texto: str) -> ResultadoValidacao:
         """TR PCA (2026, item 5.1): relatórios trimestrais na supressão de vegetação,
@@ -838,7 +871,7 @@ class AuditorTecnico:
                 f"exigido '{self.parametros['pca_periodicidade_obras']}' pelo TR PCA (item 5.1)."
             )
         return self._concluir_llm(nome_documento, "TR Plano de Controle Ambiental (PCA)",
-                                  veredito, reprovacoes)
+                                  veredito, reprovacoes, texto=texto)
 
     # ==========================================================================
     # Validação genérica por CHECKLIST DE CONTEÚDO (EIV, LCV e demais TRs)
@@ -858,11 +891,16 @@ class AuditorTecnico:
 
         # trecho de referência: primeira ocorrência reconhecida (contexto)
         trecho = ""
+        pag = None
         for item, palavras in itens.items():
             for p in palavras:
                 idx = t.find(p)
                 if idx >= 0:
                     trecho = re.sub(r"\s+", " ", texto[max(0, idx - 40):idx + 160]).strip()
+                    from .leitor_pdf import LeitorPDF
+                    pag = LeitorPDF.localizar_pagina(texto, idx)
+                    if pag is not None:
+                        trecho = f"[pág. {pag}] {trecho}"
                     break
             if trecho:
                 break
@@ -880,7 +918,9 @@ class AuditorTecnico:
         return ResultadoValidacao(
             documento_analisado=nome_documento, norma_tr=norma_tr,
             status=status, itens_reprovados=itens_reprovados,
-            trecho_referencia=trecho, metricas={"itens_ausentes": ausentes},
+            trecho_referencia=trecho,
+            pagina_referencia=pag,
+            metricas={"itens_ausentes": ausentes},
             origem=OrigemAnalise.HEURISTICO_LOCAL)
 
     # ==========================================================================
@@ -1539,6 +1579,15 @@ class AuditorTecnico:
                     documento_analisado=nome_documento, norma_tr=tr,
                     status=StatusValidacao.REVISAO_MANUAL,
                     itens_reprovados=[f"Erro interno na validação do TR {tr}: {exc}"]))
+        # Enriquece com métricas estruturais (GabeBrain)
+        tk_est = int(len(texto) / 4)
+        extenso = tk_est > 50000
+        for r in resultados:
+            if r.tokens_estimados is None:
+                r.tokens_estimados = tk_est
+            if r.documento_extenso is None:
+                r.documento_extenso = extenso
+
         # Documentos que não são laudos (matrícula, contrato social, CNPJ...)
         # simplesmente não têm TR a aplicar: NENHUMA mensagem de erro aqui
         # (o usuário não envia TR - o sistema confronta com os NOSSOS TRs).

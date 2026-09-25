@@ -369,3 +369,133 @@ def test_leitor_imagem_extracao_ocr():
     texto_val = validador.extrair_texto("cartao_cnpj.png", conteudo)
     assert "12.345.678/0001-90" in texto_val or "CNPJ" in texto_val
 
+
+# ==============================================================================
+# TESTES DAS HABILIDADES GABEBRAIN NO LEITOR DE PDF E AUDITOR TÉCNICO
+# ==============================================================================
+def test_leitor_pdf_marcadores_pagina_e_fatiamento():
+    """GabeBrain 02 (biblioteca-pesquisavel): extração por página [[pag N]],
+    fatiamento seletivo e localização de página."""
+    import pymupdf
+    from licenciamento.leitor_pdf import LeitorPDF
+
+    doc = pymupdf.open()
+    pag1 = doc.new_page()
+    pag1.insert_text((50, 50), "Capítulo 1: Introdução e Justificativa do Empreendimento.")
+    pag2 = doc.new_page()
+    pag2.insert_text((50, 50), "Capítulo 2: Sondagem a trado indicando lençol freático a 2,50 m.")
+    conteudo = doc.tobytes()
+    doc.close()
+
+    texto, info = LeitorPDF.extrair(conteudo)
+    assert "[[pag 1]]" in texto
+    assert "[[pag 2]]" in texto
+    assert info["paginas"] == 2
+    assert info["metodo"] == "texto_nativo"
+
+    # Localização de página precisa
+    pag_lencol = LeitorPDF.localizar_pagina(texto, "lençol freático")
+    assert pag_lencol == 2
+    pag_intro = LeitorPDF.localizar_pagina(texto, "Introdução")
+    assert pag_intro == 1
+
+    # Fatiamento cirúrgico de páginas (ler página 2 apenas)
+    trecho_p2 = LeitorPDF.extrair_paginas(texto, 2, 2)
+    assert "lençol freático" in trecho_p2
+    assert "Introdução" not in trecho_p2
+
+
+def test_leitor_pdf_deteccao_texto_corrompido():
+    """GabeBrain 07: detecta PDF com camada de texto corrompida / mojibake."""
+    from licenciamento.leitor_pdf import LeitorPDF
+
+    # Texto normal
+    assert LeitorPDF._texto_corrompido("Este é um documento de licenciamento ambiental perfeitamente legível.") is False
+
+    # Texto corrompido com caracteres nulos / de substituição
+    corrompido_subst = "abc\x00\x00\x00\x00\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd" * 5
+    assert LeitorPDF._texto_corrompido(corrompido_subst) is True
+
+    # Texto com baixíssima proporção de caracteres alfanuméricos (glifos quebrados)
+    corrompido_glifos = "!@#$%^&*()_+{}|:<>?~`!@#$%^&*()_+{}|:<>?~`!@#$%^&*()_+{}|:<>?~`" * 3
+    assert LeitorPDF._texto_corrompido(corrompido_glifos) is True
+
+
+def test_leitor_pdf_estrutura_toc_e_outline_util():
+    """GabeBrain 17 (biblioteca-mapa-documento): extração de esqueleto ToC gratuito,
+    validação de outline e marcação de seções quentes."""
+    import pymupdf
+    from licenciamento.leitor_pdf import LeitorPDF
+
+    doc = pymupdf.open()
+    for _ in range(10):
+        doc.new_page()
+
+    # Sumário com capítulos distintos e relevantes
+    toc = [
+        [1, "Introdução Geral", 1],
+        [1, "Diagnóstico de Sondagem e Lençol Freático", 3],
+        [1, "Inventário de Fauna Silvestre", 6],
+        [1, "Considerações Finais", 9],
+    ]
+    doc.set_toc(toc)
+    conteudo = doc.tobytes()
+    doc.close()
+
+    estrutura = LeitorPDF.extrair_estrutura(conteudo)
+    assert estrutura["rota"] == "sumario_embutido"
+    assert estrutura["total_paginas"] == 10
+    assert len(estrutura["secoes"]) == 4
+
+    # Verifica se detectou seções quentes ambientais
+    secoes_quentes = [s for s in estrutura["secoes"] if s["quente"]]
+    titulos_quentes = [s["titulo"] for s in secoes_quentes]
+    assert any("Sondagem" in t for t in titulos_quentes)
+    assert any("Fauna" in t for t in titulos_quentes)
+
+
+def test_outline_util_rejeita_sumario_invalido():
+    """Valida outline_util rejeitando sumários onde todos os itens apontam para a mesma página."""
+    from licenciamento.leitor_pdf import LeitorPDF
+
+    # Sumário falso (todos na página 1)
+    toc_invalido = [
+        (1, "Capítulo 1", 1),
+        (1, "Capítulo 2", 1),
+        (1, "Capítulo 3", 1),
+        (1, "Capítulo 4", 1),
+    ]
+    serve, motivo = LeitorPDF.outline_util(toc_invalido, 100)
+    assert serve is False
+    assert "páginas distintas" in motivo or "caem na mesma página" in motivo
+
+
+def test_auditor_tecnico_rastreamento_pagina():
+    """Verifica que o AuditorTecnico inclui rastreamento de página [[pag N]] nos achados."""
+    from licenciamento.auditor_tecnico import AuditorTecnico
+    from licenciamento.esquemas_tecnicos import StatusValidacao
+
+    at = AuditorTecnico()
+    texto_com_paginas = (
+        "[[pag 1]]\n"
+        "RELATÓRIO TÉCNICO DE MEIO FÍSICO\n"
+        "Empreendimento Residencial Vale Verde.\n\n"
+        "[[pag 2]]\n"
+        "Resultados das investigações geotécnicas:\n"
+        "Área do aterro: 1.0 ha.\n"
+        "Foram realizados 3 furos de sondagem a trado.\n"
+        "Profundidade do lençol freático: 2.0 m.\n"
+        "Cota base do aterro: 1.0 m.\n"
+        "Distância vertical informada: 1.0 m.\n"
+        "Foram executados 2 ensaios de permeabilidade.\n"
+    )
+
+    metricas = at.extrair_parametros_sondagem(texto_com_paginas, contexto="RSCC")
+    assert metricas.pagina_referencia == 2
+
+    resultado = at.validar_sondagem_aterramento("laudo_geologico.pdf", metricas)
+    assert resultado.status == StatusValidacao.PENDENTE
+    assert resultado.pagina_referencia == 2
+    assert "[pág. 2]" in resultado.trecho_referencia
+
+

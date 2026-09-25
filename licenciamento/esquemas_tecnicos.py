@@ -55,6 +55,8 @@ class MetricasSondagem(BaseModel):
         None, description="Ensaios de permeabilidade informados")
     impermeabilizacao_prevista: Optional[bool] = Field(
         None, description="O laudo prevê impermeabilização da base (argila compactada)?")
+    pagina_referencia: Optional[int] = Field(
+        None, description="Página onde os parâmetros de sondagem foram localizados")
 
 
 class MetricasRFO(BaseModel):
@@ -70,6 +72,8 @@ class MetricasRFO(BaseModel):
     especies_suprimidas: Optional[int] = Field(None, description="Nº de espécies suprimidas")
     monitoramento_anos: Optional[int] = Field(None, description="Período de monitoramento proposto (anos)")
     percentual_falha_admitido: Optional[float] = Field(None, description="% de falha admitido no projeto")
+    pagina_referencia: Optional[int] = Field(
+        None, description="Página onde os parâmetros da RFO foram localizados")
 
 
 # ==============================================================================
@@ -123,6 +127,9 @@ class ResultadoValidacao(BaseModel):
     itens_reprovados: list[str] = Field(default_factory=list)
     # tolera None (converte para ''): nenhum produtor deve quebrar o painel
     trecho_referencia: Union[str, None] = ""
+    pagina_referencia: Optional[int] = Field(None, description="Página do documento com a evidência técnica")
+    tokens_estimados: Optional[int] = Field(None, description="Estimativa de tokens do documento")
+    documento_extenso: Optional[bool] = Field(None, description="True se exceder 50k tokens")
     metricas: dict[str, Any] = Field(default_factory=dict)
     origem: OrigemAnalise = OrigemAnalise.DETERMINISTICO
 
