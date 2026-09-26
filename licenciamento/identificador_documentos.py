@@ -53,6 +53,8 @@ PADROES_TIPO_EXTRA: dict[str, list[str]] = {
     "PROJETO_EXECUTIVO": ["projeto executivo", "projeto tecnico", "projeto aprovado"],
     "FORMULARIO_ENQUADRAMENTO": ["formulario de enquadramento", "formulario assinado",
                                  "formulario enquadramento"],
+    "RRT": ["rrt", "rtt", "registro de responsabilidade tecnica", "cau br", "cau/br",
+            "conselho de arquitetura", "arquiteto", "urbanista"],
 }
 TODOS_PADROES: dict[str, list[str]] = {**PADROES_TIPO, **PADROES_TIPO_EXTRA}
 
@@ -65,10 +67,14 @@ ASSINATURAS_CONTEUDO: dict[str, list[str]] = {
              r"situa[çc][ãa]o\s+cadastral", r"cart[ãa]o\s+cnpj", r"numero\s+de\s+inscricao"],
     "CONTRATO_SOCIAL": [r"contrato\s+social", r"estatuto\s+social", r"ata\s+de\s+nomea[çc][ãa]o",
                         r"junta\s+comercial"],
-    "ART": [r"\b(?:art|rrt)\s*n?[ºo°.]?\s*[:\-]?\s*[\d./\-]{4,}",
-            r"anota[çc][ãa]o\s+de\s+responsabilidade\s+t[ée]cnica",
+    "RRT": [r"\b(?:rrt|rtt)\b",
             r"registro\s+de\s+responsabilidade\s+t[ée]cnica",
-            r"conselho\s+regional\s+de\s+engenharia|conselho\s+de\s+arquitetura"],
+            r"conselho\s+de\s+arquitetura\s+e\s+urbanismo|caubr\.gov\.br|\bcau/br\b|\bcau\b",
+            r"arquiteto\(?a?\)?\s+e\s+urbanista",
+            r"\b(?:si)?\d{7,}[a-z0-9]*\b|\b000?a\d{6,}\b"],
+    "ART": [r"\bart\s*n?[ºo°.]?\s*[:\-]?\s*[\d./\-]{4,}",
+            r"anota[çc][ãa]o\s+de\s+responsabilidade\s+t[ée]cnica",
+            r"conselho\s+regional\s+de\s+engenharia|crea|crbio|conselho\s+regional\s+de\s+biologia"],
     "PGRS": [r"plano\s+de\s+gerenciamento", r"res[íi]duos?\s+s[óo]lidos",
              r"\bpgrs\b"],
     "ALVARA_BOMBEIROS": [r"corpo\s+de\s+bombeiros", r"alvar[áa]\s+(do\s+)?(corpo\s+de\s+)?bombeiros",
@@ -116,7 +122,10 @@ RE_EXIGENCIA_TIPO: list[tuple[str, re.Pattern]] = [
     ("PCA", re.compile(r"\bpca\b|plano\s+de\s+controle\s+ambiental", re.I)),
     ("RCA", re.compile(r"\brca\b|relat[óo]rio\s+de\s+controle\s+ambiental", re.I)),
     ("PROJETO_EXECUTIVO", re.compile(r"projeto\s+(executivo|t[ée]cnic|construC?[çc][ãa]o|aprovado)", re.I)),
-    ("ART", re.compile(r"^\s*\d*\s*[.)]?\s*(?:c[óo]pia\s+da\s+)?(?:art|rrt)\b|"
+    ("RRT", re.compile(r"^\s*\d*\s*[.)]?\s*(?:c[óo]pia\s+da\s+)?(?:rrt|rtt)\b|"
+                      r"registro\s+de\s+responsabilidade\s+t[ée]cnica|"
+                      r"(?:rrt|rtt)\s+de\s+profissional", re.I)),
+    ("ART", re.compile(r"^\s*\d*\s*[.)]?\s*(?:c[óo]pia\s+da\s+)?(?:art|rrt|rtt)\b|"
                       r"anota[çc][ãa]o\s+de\s+responsabilidade\s+t[ée]cnica\s*(?:\(art\))?$|"
                       r"art\s+de\s+profissional", re.I)),
 ]
@@ -254,8 +263,8 @@ class IdentificadorDocumentos:
             nome_n = normalizar_nome(nome_arquivo)
             if not nome_n or not tipo:
                 return False
-            # NUNCA aprender ART para arquivos de formulários, projetos, laudos ou estudos
-            if tipo == "ART" and any(k in nome_n for k in [
+            # NUNCA aprender ART ou RRT para arquivos de formulários, projetos, laudos ou estudos
+            if tipo in ("ART", "RRT") and any(k in nome_n for k in [
                     "formulario", "projeto", "laudo", "estudo", "inventario",
                     "diretriz", "certidao", "declaracao", "planta", "croqui",
                     "matricula", "relatorio", "contrato"]):

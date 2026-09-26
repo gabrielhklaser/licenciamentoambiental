@@ -43,8 +43,10 @@ PADROES_TIPO: dict[str, list[str]] = {
     "CNPJ": ["comprovante de inscricao e de situacao cadastral", "cartao cnpj",
              "copia do cnpj", "comprovante cnpj", "cnpj"],
     "CONTRATO_SOCIAL": ["contrato social", "estatuto social", "ata de nomeacao"],
-    "ART": ["anotacao de responsabilidade tecnica", "art nº", "art n", "rrt nº", "rrt n",
+    "ART": ["anotacao de responsabilidade tecnica", "art nº", "art n",
             "anotacao de responsabilidade"],
+    "RRT": ["registro de responsabilidade tecnica", "rrt", "rtt", "cau br", "cau/br",
+            "conselho de arquitetura e urbanismo", "arquiteto e urbanista"],
     "PGRS": ["plano de gerenciamento de residuos solidos", "pgrs"],
     "ALVARA_BOMBEIROS": ["alvara do corpo de bombeiros", "alvara de bombeiros",
                          "corpo de bombeiros militar", "cbmpa", "ppci"],
@@ -377,7 +379,8 @@ class ValidadorDocumentos:
                 r"cadastro\s+nacional\s+da\s+pessoa\s+juridica",
                 r"comprovante\s+de\s+inscricao\s+e\s+de\s+situacao\s+cadastral",
             ],
-            "ART": [r"\b(art|rrt)\s*n?[°ºo]?\s*\.?\s*[\w/\-]{4,}"],
+            "ART": [r"\b(art|rrt|rtt)\s*n?[°ºo]?\s*\.?\s*[\w/\-]{4,}|conselho\s+regional|anota[çc][ãa]o\s+de\s+responsabilidade"],
+            "RRT": [r"(caubr|cau/br|conselho\s+de\s+arquitetura|arquiteto|urbanista|registro\s+de\s+responsabilidade|rrt|rtt)"],
             "ALVARA_BOMBEIROS": [r"(alvar[aá]|ppci|protocolo)"],
             "CONTRATO_SOCIAL": [r"(contrato social|estatuto|sociedade|quota)"],
         }
@@ -409,7 +412,7 @@ class ValidadorDocumentos:
                         "conforme", "sobre", "pelo", "pela", "quando", "caso",
                         "ser", "deve", "apresentar", "copia"}
 
-    SIGLAS_RELEVANTES = {"cnpj", "art", "rrt", "eiv", "pca", "rfo", "prad", "pgrs", "lcv", "lfs"}
+    SIGLAS_RELEVANTES = {"cnpj", "art", "rrt", "rtt", "eiv", "pca", "rfo", "prad", "pgrs", "lcv", "lfs"}
 
     def _nucleo_discriminante(self, exigencia: str) -> list[str]:
         """Primeiras palavras SIGNIFICATIVAS do nome do documento exigido
