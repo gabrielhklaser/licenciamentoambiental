@@ -36,10 +36,11 @@ import py_compile
 import re
 import subprocess
 import sys
+import unicodedata
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 RAIZ = Path(__file__).resolve().parents[1]
@@ -614,6 +615,163 @@ class AuditorSistema:
                               "(xx.xxx.xxx/xxxx-xx) não reconhecido na "
                               "matrícula.",
                     evidencia=str(c)[:300], correcao="manual"))
+            # (e) RTT/RRT pertence ao CAU/BR e ao ARQUITETO/URBANISTA;
+            #     podem existir VÁRIAS RTTs no mesmo processo
+            from licenciamento.identificador_documentos import (
+                IdentificadorDocumentos)
+            idf = IdentificadorDocumentos()
+            for nome, tipo_esperado, conselho_esperado in [
+                ("RTT - Projeto Urbanistico.pdf", "RRT", "CAU/BR"),
+                ("RRT - Execucao de Obras.pdf", "RRT", "CAU/BR"),
+                ("ART 202613404.pdf", "ART", "CREA"),
+            ]:
+                tipo_doc = idf.identificar(nome).get("tipo")
+                conselho_doc = idf.identificar(nome).get("orgao")
+                if tipo_doc != tipo_esperado:
+                    erros.append(Erro(
+                        id="CONF-RRT-TIPO", severidade="alta",
+                        componente="licenciamento/identificador_documentos.py",
+                        descricao=f"'{nome}' identificado como {tipo_doc} e "
+                                  f"deveria ser {tipo_esperado} (RTT/RRT é do "
+                                  f"CAU/BR e do arquiteto/urbanista; ART é do "
+                                  f"CREA/CRBio).",
+                        evidencia=f"tipo={tipo_doc} conselho={conselho_doc}",
+                        correcao="manual"))
+            registros = auditor.identificar_registros_rt(
+                "RRT nº 202601001-1\nRegistro de Responsabilidade Técnica "
+                "(RRT) do Conselho de Arquitetura e Urbanismo do Brasil\n"
+                "Profissional: Raquel Beckes\nRegistro CAU/BR: A67154-1\n"
+                "Atividade: Projeto Urbanístico\n"
+                "RRT nº 202601002-9\nRegistro de Responsabilidade Técnica "
+                "(RRT)\nProfissional: Raquel Beckes\nRegistro CAU: A67154-1\n"
+                "Atividade: Execução de Obras\n")
+            if len(registros) != 2:
+                erros.append(Erro(
+                    id="CONF-RRT-MULTIPLAS", severidade="alta",
+                    componente="licenciamento/auditor_tecnico.py",
+                    descricao="VÁRIAS RTTs podem ser anexadas ao processo "
+                              "(Projeto Urbanístico, Execução de Obras...): "
+                              "identificar_registros_rt deve retornar TODOS "
+                              "os registros do texto.",
+                    evidencia=str(registros)[:400], correcao="manual"))
+            else:
+                if any(r.get("tipo") != "RRT" or r.get("orgao") != "CAU/BR"
+                       for r in registros):
+                    erros.append(Erro(
+                        id="CONF-RRT-CONSELHO", severidade="alta",
+                        componente="licenciamento/auditor_tecnico.py",
+                        descricao="RTT/RRT deve ser tipada como RRT e "
+                                  "atribuída ao CAU/BR (nunca CREA/CRBio).",
+                        evidencia=str(registros)[:400], correcao="manual"))
+                def _sem_acento(t: Any) -> str:
+                    return unicodedata.normalize(
+                        "NFKD", str(t or "")).encode(
+                            "ascii", "ignore").decode().lower()
+                if {_sem_acento(r.get("atividade"))
+                    for r in registros} != {"projeto urbanistico",
+                                            "execucao de obras"}:
+                    erros.append(Erro(
+                        id="CONF-RRT-ATIVIDADE", severidade="media",
+                        componente="licenciamento/auditor_tecnico.py",
+                        descricao="Cada RTT de múltiplas RTTs deve ter sua "
+                                  "atividade identificada (Projeto "
+                                  "Urbanístico, Execução de Obras...).",
+                        evidencia=str([r.get("atividade")
+                                       for r in registros])[:300],
+                        correcao="manual"))
+            # (f) conselho divergente (ART do formulário x RTT do documento)
+            conflito = auditor.auditar_com_dupla_checagem(
+                "rrt_cau.pdf",
+                "Registro de Responsabilidade Técnica (RRT)\n"
+                "Conselho de Arquitetura e Urbanismo do Brasil\n"
+                "Profissional: Raquel Beckes\nRRT nº 17246618\n"
+                "Registro CAU/BR: A67154-1\n"
+                "Atividade: Projeto Urbanístico\n",
+                arts_formulario=[{"numero": "17246618",
+                                  "nome": "Raquel Beckes", "secao": "4.3",
+                                  "registro": "RS233891"}])
+            rc = [x for x in conflito if "ART" in x.norma_tr]
+            if not rc or not (rc[0].metricas or {}).get("conselho_incompativel"):
+                erros.append(Erro(
+                    id="CONF-CONSELHO-DIVERGENTE", severidade="alta",
+                    componente="licenciamento/auditor_tecnico.py",
+                    descricao="Número da ART do formulário que casa com uma "
+                              "RTT de outro conselho (CAU/BR x CREA) precisa "
+                              "ser sinalizado como conselho incompatível - "
+                              "nunca CONFORME por engano.",
+                    evidencia=str([(x.norma_tr, x.status.value, x.metricas)
+                                   for x in conflito])[:400],
+                    correcao="manual"))
+            # (g) TR NUNCA aplicado de forma cruzada: um laudo que SE DECLARA
+            #     de um tipo recebe só o TR daquele tipo
+            cruzado = auditor.auditar_com_dupla_checagem(
+                "misto.pdf",
+                "LAUDO DE COBERTURA VEGETAL\nForam consultadas sondagens "
+                "anteriores e há reposição florestal de mudas nativas.\n")
+            normas = [x.norma_tr for x in cruzado]
+            if not any("Cobertura" in n for n in normas) or \
+                    any("Meio Físico" in n or "RFO" in n for n in normas):
+                erros.append(Erro(
+                    id="CONF-TR-CRUZADO", severidade="alta",
+                    componente="licenciamento/auditor_tecnico.py",
+                    descricao="TR aplicado de forma cruzada: um Laudo de "
+                              "Cobertura Vegetal que cita 'sondagem' e "
+                              "'reposição florestal' recebeu TR de geologia "
+                              "ou de RFO. O título do documento é a "
+                              "autoridade sobre qual TR se aplica.",
+                    evidencia=str(normas)[:400], correcao="manual"))
+            # (h) camadas GIS: leitura geométrica SEM TR de conteúdo
+            kml = ("<?xml version='1.0'?><kml xmlns='http://www.opengis."
+                   "net/kml/2.2'><Document><Folder><name>Area do "
+                   "Empreendimento</name><Placemark><name>Poligonal</name>"
+                   "<Polygon><outerBoundaryIs><LinearRing><coordinates>"
+                   "-50.10,-29.90,0 -50.09,-29.90,0 -50.09,-29.89,0 "
+                   "-50.10,-29.89,0 -50.10,-29.90,0</coordinates>"
+                   "</LinearRing></outerBoundaryIs></Polygon></Placemark>"
+                   "</Folder></Document></kml>")
+            from licenciamento.agente_gis import AgenteGIS
+            from licenciamento.leitor_gis import LeitorGIS, area_ha
+            pacote = LeitorGIS.ler_arquivo("area.kml", kml.encode())
+            if not pacote.camadas:
+                erros.append(Erro(
+                    id="CONF-GIS-LEITURA", severidade="alta",
+                    componente="licenciamento/leitor_gis.py",
+                    descricao="LeitorGIS não separou a camada 'Area do "
+                              "Empreendimento' de um KML válido.",
+                    evidencia=str(pacote.erros)[:300], correcao="manual"))
+            else:
+                area = area_ha(pacote.camadas[0])
+                if area is None or not (90 < area < 110):
+                    erros.append(Erro(
+                        id="CONF-GIS-AREA", severidade="media",
+                        componente="licenciamento/leitor_gis.py",
+                        descricao="Área da camada fora do esperado para um "
+                                  "quadrado de ~0,01° (~106,9 ha).",
+                        evidencia=f"area_ha={area}", correcao="manual"))
+                res_gis = AgenteGIS().conferir(
+                    "area.kml", pacote,
+                    areas_formulario={"area_total_ha": 3.0})
+                if not res_gis or (res_gis[0].metricas or {}).get(
+                        "tr_aplicado", "X") is not None:
+                    erros.append(Erro(
+                        id="CONF-GIS-TR", severidade="alta",
+                        componente="licenciamento/agente_gis.py",
+                        descricao="Camada GIS recebeu TR de conteúdo (deve "
+                                  "ser None: confronto é geométrico, nunca "
+                                  "de TR de laudo).",
+                        evidencia=str([r.metricas for r in res_gis])[:300],
+                        correcao="manual"))
+                elif not any("DIVERGE" in i for r in res_gis
+                             for i in r.itens_reprovados):
+                    erros.append(Erro(
+                        id="CONF-GIS-AREA-DIVERG", severidade="media",
+                        componente="licenciamento/agente_gis.py",
+                        descricao="Divergência de área entre a camada GIS e a "
+                                  "área declarada no formulário não "
+                                  "sinalizada.",
+                        evidencia=str([r.itens_reprovados
+                                       for r in res_gis])[:300],
+                        correcao="manual"))
         except Exception as exc:  # noqa: BLE001
             erros.append(Erro(id="CONF-FUNC", severidade="media",
                               componente="licenciamento/auditor_tecnico.py",

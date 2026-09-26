@@ -43,10 +43,15 @@ PADROES_TIPO: dict[str, list[str]] = {
     "CNPJ": ["comprovante de inscricao e de situacao cadastral", "cartao cnpj",
              "copia do cnpj", "comprovante cnpj", "cnpj"],
     "CONTRATO_SOCIAL": ["contrato social", "estatuto social", "ata de nomeacao"],
+    # ART: registro do CREA (engenheiros, geólogos) / CRBio (biólogos)
     "ART": ["anotacao de responsabilidade tecnica", "art nº", "art n",
-            "anotacao de responsabilidade"],
+            "anotacao de responsabilidade", "crea", "conselho regional de engenharia"],
+    # RTT/RRT: registro do CAU/BR, exclusivo de Arquitetos e Urbanistas.
+    # Podem existir VÁRIAS RTTs no processo (projeto urbanístico, execução de
+    # obras, plano de arborização...): o nome costuma trazer a etapa.
     "RRT": ["registro de responsabilidade tecnica", "rrt", "rtt", "cau br", "cau/br",
-            "conselho de arquitetura e urbanismo", "arquiteto e urbanista"],
+            "caubr", "conselho de arquitetura e urbanismo", "arquiteto e urbanista",
+            "arquiteto", "urbanista", "responsavel tecnico cau"],
     "PGRS": ["plano de gerenciamento de residuos solidos", "pgrs"],
     "ALVARA_BOMBEIROS": ["alvara do corpo de bombeiros", "alvara de bombeiros",
                          "corpo de bombeiros militar", "cbmpa", "ppci"],
@@ -56,19 +61,36 @@ PADROES_TIPO: dict[str, list[str]] = {
     "PRAD": ["plano de recuperacao de area degradada", "prad", "recuperacao de area degradada"],
     "EIV": ["estudo de impacto de vizinhanca", "eiv"],
     "LCV": ["laudo de cobertura vegetal", "inventario florestal", "lcv"],
-    "SONDAGEM": ["sondagem", "laudo geotecnico", "trincheira", "nivel do lencol"],
+    "SONDAGEM": ["sondagem", "laudo geotecnico", "trincheira", "nivel do lencol",
+                 "laudo geologico", "ensaio de infiltracao", "ensaios de infiltracao"],
     "PROJETO_ARQUITETONICO": ["projeto arquitetonico", "projeto de construcao"],
     "RELATORIO_FOTOGRAFICO": ["relatorio tecnico-fotografico", "relatorio fotografico"],
     "CERTIDAO_ZONEAMENTO": ["certidao de zoneamento", "zoneamento urbano"],
+    # Camadas GIS (KMZ/KML/shapefile do projeto urbanístico, curvas de nível,
+    # mapa de APPs): exigência do checklist oficial da LP/LI.
+    "CAMADA_GIS": ["kmz", "kml", "shapefile", "geojson", "gpkg", "curvas de nivel",
+                   "mapa de app", "camada gis", "projecao utm", "sirgas", "croqui"],
 }
 
 # Extensões aceitas no upload (alinhadas à página inicial do frontend)
 EXTENSOES_TEXTO = {".pdf", ".docx", ".xlsx", ".xls", ".htm", ".html", ".txt", ".rtf", ".csv"}
 
+# Camadas geoespaciais (KMZ/KML/GeoJSON/GPX) exigidas pelo checklist oficial
+# ('Arquivo KMZ/KML e DWG do projeto urbanístico, curvas de nível e mapa de
+# áreas de preservação permanente'). São LIDAS, não auditadas por TR.
+EXTENSOES_GIS = {".kml", ".kmz", ".geojson", ".gpx"}
+
 # Documentações às vezes chegam como IMAGEM (fotos/escaneamentos): aceitas no
 # upload e analisadas por OCR quando o servidor possui tesseract; sem OCR, o
 # documento segue para CONFERÊNCIA MANUAL com preview no painel.
 EXTENSOES_IMAGEM = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".gif"}
+
+
+#: linha do resumo do LeitorGIS: "Camada: X | tema: Y | geometria: Z | feições: N | SRS: ..."
+RE_LINHA_CAMADA = re.compile(
+    r"^Camada:\s*(?P<nome>.+?)\s*\|\s*tema:\s*(?P<tema>\S+)\s*\|\s*"
+    r"geometria:\s*(?P<geom>\S+)\s*\|\s*fei[çc][õo]es:\s*(?P<n>\d+)"
+    r"\s*\|\s*SRS:\s*(?P<srs>.*)$")
 
 
 def normalizar(texto: Optional[str]) -> str:
@@ -107,9 +129,16 @@ class ValidadorDocumentos:
     # 1) EXTRAÇÃO DE TEXTO MULTI-FORMATO
     # ==================================================================
     def extrair_texto(self, nome_arquivo: str, conteudo: bytes) -> str:
-        """Extrai o texto do anexo conforme a extensão (nunca levanta exceção)."""
+        """Extrai o texto do anexo conforme a extensão (nunca levanta exceção).
+
+        Arquivos de CAMADAS GIS (.kml/.kmz/.geojson/.gpx) não têm "texto": são
+        lidos pelo `LeitorGIS` e devolvem um RESUMO ESTRUTURADO das camadas
+        (nome da camada, feições, SRS declarado) - nunca um TR é aplicado a
+        eles (diretriz da skill gis-multicamadas)."""
         try:
             extensao = Path(nome_arquivo).suffix.lower()
+            if extensao in EXTENSOES_GIS:
+                return self._texto_gis(nome_arquivo, conteudo)
             if extensao == ".pdf":
                 return self._texto_pdf(conteudo)
             if extensao in (".docx",):
@@ -125,6 +154,17 @@ class ValidadorDocumentos:
             return ""
         except Exception as exc:  # noqa: BLE001 - extração não pode derrubar a análise
             logger.error("Falha ao extrair texto de %s: %s", nome_arquivo, exc)
+            return ""
+
+    @staticmethod
+    def _texto_gis(nome_arquivo: str, conteudo: bytes) -> str:
+        """Resumo textual das camadas GIS de um arquivo geoespacial."""
+        try:
+            from licenciamento.leitor_gis import LeitorGIS
+            pacote = LeitorGIS.ler_arquivo(nome_arquivo, conteudo)
+            return pacote.resumo_textual()
+        except Exception as exc:  # noqa: BLE001 - GIS ilegível não derruba a análise
+            logger.warning("Falha ao ler camadas GIS de %s: %s", nome_arquivo, exc)
             return ""
 
     @staticmethod
@@ -324,6 +364,182 @@ class ValidadorDocumentos:
             metricas=metricas, origem=OrigemAnalise.DETERMINISTICO)
 
     # ------------------------------------------------------------------
+    # RTT/RRT (CAU/BR) e camadas GIS: validações próprias
+    # ------------------------------------------------------------------
+    RE_NUM_RRT = re.compile(
+        r"(?:rrt|rtt)\s*(?:n[ºo°.]?|numero)?\s*[:\-]?\s*([\w./\-]{4,20})", re.I)
+    RE_REGISTRO_CAU_DOC = re.compile(
+        r"(?:registro|inscri[çc][ãa]o)\s*(?:no\s*)?(?:cau|caubr|cau/br)?\s*[:\-]?\s*"
+        r"(A[\s\-]?\d{4,8}(?:[\-/]\d{1,2})?)", re.I)
+    # etapas técnicas mais comuns de uma RTT (podem existir VÁRIAS por processo)
+    ETAPAS_RRT = ["projeto urbanistico", "projeto arquitetonico", "execucao de obras",
+                  "execucao da obra", "plano de arborizacao", "levantamento planialtimetrico",
+                  "projeto de instalacao", "licenciamento ambiental", "acompanhamento de obra"]
+
+    @classmethod
+    def conselho_do_documento(cls, texto: str) -> Optional[str]:
+        """Conselho profissional que emite o registro citado no documento."""
+        from licenciamento.identificador_documentos import conselho_do_texto
+        return conselho_do_texto(texto)
+
+    @classmethod
+    def extrair_rtts(cls, texto: str) -> list[dict]:
+        """TODAS as RTTs declaradas em um documento (podem ser várias).
+
+        Um único arquivo pode concentrar a RTT do Projeto Urbanístico e a RTT
+        da Execução de Obras; cada uma é devolvida separada com número,
+        profissional, registro no CAU e a etapa/atividade declarada."""
+        if not texto:
+            return []
+        achados: list[dict] = []
+        vistos: set[str] = set()
+        # 1) o documento É um registro: usa o parser de registros, que traz
+        #    número, profissional, conselho (CAU/BR) e atividade de CADA RTT
+        try:
+            from licenciamento.auditor_tecnico import AuditorTecnico
+            for reg in AuditorTecnico.identificar_registros_rt(texto):
+                if reg.get("tipo") != "RRT":
+                    continue
+                numero = str(reg.get("numero") or "")
+                if len(numero) < 5 or numero in vistos:
+                    continue
+                vistos.add(numero)
+                achados.append({
+                    "numero": numero,
+                    "nome": reg.get("nome"),
+                    "tipo": "RRT",
+                    "orgao": reg.get("orgao"),
+                    "registro_cau": reg.get("registro"),
+                    "etapa": reg.get("atividade"),
+                })
+            if achados:
+                return achados
+        except Exception:  # noqa: BLE001 - segue para a leitura por regex
+            pass
+        # 2) documento que apenas CITA números de RTT
+        for m in cls.RE_NUM_RRT.finditer(texto):
+            numero = re.sub(r"[^\w]", "", m.group(1) or "")
+            # precisa conter DÍGITOS (evita capturar 'Conselho', 'CAU'...)
+            if len(numero) < 5 or not re.search(r"\d{4,}", numero) \
+                    or numero in vistos:
+                continue
+            vistos.add(numero)
+            janela = texto[m.start():m.start() + 400]
+            janela_ant = texto[max(0, m.start() - 260):m.start()]
+            contexto = normalizar(f"{janela_ant} {janela}")
+            etapa = next((e for e in cls.ETAPAS_RRT if e in contexto), None)
+            m_reg = cls.RE_REGISTRO_CAU_DOC.search(texto)
+            achados.append({
+                "numero": numero,
+                "nome": None,
+                "tipo": "RRT",
+                "orgao": (cls.conselho_do_documento(texto)
+                          if "cau" in normalizar(texto) else None),
+                "registro_cau": (re.sub(r"\s+", "", m_reg.group(1))
+                                 if m_reg else None),
+                "etapa": etapa,
+            })
+        return achados
+
+    def validar_rrt(self, nome_arquivo: str, texto: str) -> ResultadoValidacao:
+        """Confere uma RTT/RRT: registro do CAU/BR para Arquiteto e Urbanista.
+
+        Regra do licenciador: RTT/RRT pertencem SEMPRE ao CAU/BR e a Arquitetos
+        e Urbanistas. O confronto nº + nome + registro + etapa com o formulário
+        é bilateral e feito pelo AgenteAdministrativo; aqui se confere a
+        INTEGRIDADE do registro (conselho, profissional e atividade)."""
+        norma = "RTT/RRT - Registro de Responsabilidade Técnica (CAU/BR)"
+        texto_n = normalizar(texto)
+        conselho = self.conselho_do_documento(texto)
+        rtts = self.extrair_rtts(texto)
+        reprovados: list[str] = []
+        metricas: dict[str, Any] = {
+            "conselho": conselho, "tipo_registro": "RRT",
+            "rtts_no_documento": len(rtts),
+            "numeros": [r["numero"] for r in rtts],
+            "registros_cau": [r.get("registro_cau") for r in rtts],
+            "etapas": [r.get("etapa") for r in rtts]}
+
+        if conselho and conselho != "CAU/BR":
+            reprovados.append(
+                f"Documento classificado como RTT/RRT (registro do CAU/BR), mas o "
+                f"conselho citado é {conselho} - RTT/RRT é exclusivo do "
+                f"CAU/BR e de Arquitetos e Urbanistas; conferir se o documento "
+                f"é uma ART de CREA/CRBio.")
+        elif not conselho:
+            reprovados.append(
+                "RTT/RRT sem identificação do CAU/BR no texto - conferir se o "
+                "registro foi emitido pelo Conselho de Arquitetura e Urbanismo.")
+        if not any(k in texto_n for k in ["arquiteto", "urbanista"]):
+            reprovados.append(
+                "RTT/RRT sem menção a 'Arquiteto e Urbanista' - o registro do "
+                "CAU/BR é exclusivo dessa categoria profissional.")
+        if not rtts:
+            reprovados.append(
+                "Número da RTT/RRT não localizado no documento - conferir "
+                "manualmente (documento escaneado/OCR de baixa confiança).")
+
+        if reprovados and any("sem identificação" in r or "sem menção" in r
+                              for r in reprovados):
+            status = StatusValidacao.REVISAO_MANUAL
+        else:
+            status = (StatusValidacao.CONFORME if not reprovados
+                      else StatusValidacao.PENDENTE)
+        return ResultadoValidacao(
+            documento_analisado=nome_arquivo, norma_tr=norma, status=status,
+            itens_reprovados=reprovados, metricas=metricas,
+            trecho_referencia=texto[-200:].replace("\n", " ").strip(),
+            origem=OrigemAnalise.DETERMINISTICO)
+
+    def validar_camada_gis(self, nome_arquivo: str, texto: str) -> ResultadoValidacao:
+        """Camadas GIS (KMZ/KML/GeoJSON) são LIDAS, nunca auditadas por TR.
+
+        Diretriz da skill gis-multicamadas: cada camada tem tema próprio
+        (geologia, hidrogeologia, solos, drenagem, vias, APP, curvas de nível)
+        e NENHUM Termo de Referência de conteúdo é aplicado a arquivos
+        geoespaciais - o confronto é geométrico (SRS, feições, área)."""
+        #: linhas do resumo do LeitorGIS ("Camada: X | tema: Y | geometria: Z | ...")
+        from licenciamento.validador_documentos import RE_LINHA_CAMADA
+        camadas = [m.groupdict() for m in
+                   (RE_LINHA_CAMADA.match(l)
+                    for l in (texto or "").splitlines()) if m]
+        metricas: dict[str, Any] = {
+            "camadas": [{"nome": c["nome"], "tema": c["tema"],
+                         "tipo_geometria": c["geom"],
+                         "feicoes": int(c["n"]), "srs": c["srs"]}
+                        for c in camadas],
+            "total_camadas": len(camadas),
+            "total_feicoes": sum(int(c["n"]) for c in camadas),
+            "tr_aplicado": "nenhum - camada GIS não recebe TR de conteúdo",
+        }
+        if not camadas:
+            return ResultadoValidacao(
+                documento_analisado=nome_arquivo,
+                norma_tr="Camada GIS (KMZ/KML/GeoJSON)",
+                status=StatusValidacao.REVISAO_MANUAL,
+                itens_reprovados=[
+                    "Arquivo geoespacial sem camadas legíveis (vazio, corrompido "
+                    "ou formato não suportado) - conferir manualmente."],
+                metricas=metricas, origem=OrigemAnalise.DETERMINISTICO)
+        avisos: list[str] = []
+        for camada in camadas:
+            if camada["srs"].strip().lower().startswith(("srs não", "srs nao")):
+                avisos.append(
+                    f"Camada '{camada['nome']}' sem SRS declarado - conferir se "
+                    f"o projeto está georreferenciado em SIRGAS 2000 (exigência "
+                    f"do checklist oficial).")
+            if int(camada["n"]) == 0:
+                avisos.append(f"Camada '{camada['nome']}' sem feições.")
+        return ResultadoValidacao(
+            documento_analisado=nome_arquivo,
+            norma_tr="Camada GIS (KMZ/KML/GeoJSON)",
+            status=(StatusValidacao.PENDENTE if avisos
+                    else StatusValidacao.CONFORME),
+            itens_reprovados=avisos, metricas=metricas,
+            trecho_referencia=(texto or "")[:200].replace("\n", " ").strip(),
+            origem=OrigemAnalise.DETERMINISTICO)
+
+    # ------------------------------------------------------------------
     def analisar_documento(self, nome_arquivo: str, texto: str,
                            data_referencia: Optional[date] = None) -> ResultadoValidacao:
         """Analisa um anexo: identificação + validação específica do tipo."""
@@ -354,6 +570,10 @@ class ValidadorDocumentos:
                 origem=OrigemAnalise.DETERMINISTICO)
         if tipo == "MATRICULA_IMOVEL":
             return self.validar_matricula(nome_arquivo, texto, data_referencia)
+        if tipo == "CAMADA_GIS":
+            return self.validar_camada_gis(nome_arquivo, texto)
+        if tipo == "RRT":
+            return self.validar_rrt(nome_arquivo, texto)
         if tipo is None:
             return ResultadoValidacao(
                 documento_analisado=nome_arquivo,
@@ -379,11 +599,21 @@ class ValidadorDocumentos:
                 r"cadastro\s+nacional\s+da\s+pessoa\s+juridica",
                 r"comprovante\s+de\s+inscricao\s+e\s+de\s+situacao\s+cadastral",
             ],
-            "ART": [r"\b(art|rrt|rtt)\s*n?[°ºo]?\s*\.?\s*[\w/\-]{4,}|conselho\s+regional|anota[çc][ãa]o\s+de\s+responsabilidade"],
-            "RRT": [r"(caubr|cau/br|conselho\s+de\s+arquitetura|arquiteto|urbanista|registro\s+de\s+responsabilidade|rrt|rtt)"],
+            "ART": [r"\bart\s*n?[°ºo]?\s*\.?\s*[\w/\-]{4,}|conselho\s+regional|"
+                    r"anota[çc][ãa]o\s+de\s+responsabilidade|\bcrea\b|\bcrbio\b"],
+            "RRT": [r"\b(?:rrt|rtt)\b|conselho\s+de\s+arquitetura|\bcau\b|caubr|"
+                    r"registro\s+de\s+responsabilidade|arquiteto|urbanista"],
             "ALVARA_BOMBEIROS": [r"(alvar[aá]|ppci|protocolo)"],
             "CONTRATO_SOCIAL": [r"(contrato social|estatuto|sociedade|quota)"],
         }
+        # conselho/tipo do registro: RTT/RRT é do CAU/BR; ART é do CREA/CRBio
+        conselho = cls.conselho_do_documento(texto) if tipo in ("ART", "RRT") else None
+        tipo_registro = ("RRT" if tipo == "RRT"
+                         else ("ART" if tipo == "ART" else None))
+        metricas: dict[str, Any] = {"observacao": "Documento identificado e legível."}
+        if tipo_registro:
+            metricas["tipo_registro"] = tipo_registro
+            metricas["conselho"] = conselho
         padroes = checagens.get(tipo)
         if padroes and not any(re.search(p, texto_n) for p in padroes):
             return ResultadoValidacao(
@@ -392,12 +622,11 @@ class ValidadorDocumentos:
                 itens_reprovados=[
                     f"Documento identificado como {tipo}, mas o elemento essencial "
                     "(número/identificação) não foi localizado no texto - conferir."],
-                origem=OrigemAnalise.DETERMINISTICO)
+                metricas=metricas, origem=OrigemAnalise.DETERMINISTICO)
         return ResultadoValidacao(
             documento_analisado=nome_arquivo, norma_tr=f"Documento ({tipo})",
             status=StatusValidacao.CONFORME,
-            itens_reprovados=[],
-            metricas={"observacao": "Documento identificado e legível."},
+            itens_reprovados=[], metricas=metricas,
             origem=OrigemAnalise.DETERMINISTICO)
 
     # ==================================================================
@@ -412,7 +641,8 @@ class ValidadorDocumentos:
                         "conforme", "sobre", "pelo", "pela", "quando", "caso",
                         "ser", "deve", "apresentar", "copia"}
 
-    SIGLAS_RELEVANTES = {"cnpj", "art", "rrt", "rtt", "eiv", "pca", "rfo", "prad", "pgrs", "lcv", "lfs"}
+    SIGLAS_RELEVANTES = {"cnpj", "art", "rrt", "rtt", "eiv", "pca", "rfo", "prad",
+                         "pgrs", "lcv", "lfs", "kmz", "kml", "shp", "dwg", "gis"}
 
     def _nucleo_discriminante(self, exigencia: str) -> list[str]:
         """Primeiras palavras SIGNIFICATIVAS do nome do documento exigido
@@ -443,6 +673,11 @@ class ValidadorDocumentos:
         ex_limpo = re.sub(r"^\d+\s*[.)]\s*", "", ex_n).strip()
         exigencia_de_formulario = "formulario" in ex_n
         nucleo = self._nucleo_discriminante(exigencia)
+        # tipo do documento exigido (ex.: 'Arquivo KMZ/KML...' -> CAMADA_GIS):
+        # o PAR pelo tipo é o que impede conformidade cruzada - um .kmz nunca
+        # atende à exigência de um laudo, e um laudo nunca atende à de camadas
+        from licenciamento.identificador_documentos import RE_EXIGENCIA_TIPO
+        tipo_exigencia = next((t for t, rx in RE_EXIGENCIA_TIPO if rx.search(exigencia)), None)
         # nomes de formulário variam demais para núcleo rígido (o guard
         # específico de .htm/.html já cuida dessa família de exigência)
         exige_nucleo = len(nucleo) >= 2 and not exigencia_de_formulario
@@ -455,7 +690,22 @@ class ValidadorDocumentos:
             nome_n = normalizar(nome)
             nome_limpo = re.sub(r"^[_\-°º\d\s.]+", "", nome_n)
             texto_n = normalizar((arq.get("texto") or "")[:1200])
-            if exige_nucleo:
+            # par pelo TIPO: bônus forte quando o arquivo É do tipo exigido
+            # (ex.: exigência de camadas GIS x anexo .kmz/.kml) e veto quando
+            # o tipo é incompatível - evita 'projeto urbanístico' cruzado com
+            # um arquivo geoespacial e vice-versa.
+            from licenciamento.identificador_documentos import (
+                IdentificadorDocumentos)
+            tipo_arquivo = (arq.get("tipo")
+                            or IdentificadorDocumentos().identificar(
+                                nome, arq.get("texto")).get("tipo"))
+            par_pelo_tipo = bool(tipo_exigencia and tipo_arquivo)
+            if par_pelo_tipo and tipo_exigencia != tipo_arquivo:
+                continue        # tipo incompatível: nunca é este documento
+            # o PAR pelo tipo dispensa o núcleo do nome (um '.kmz' chamado
+            # 'camadas_curvas_nivel' não precisa conter a palavra 'arquivo')
+            if exige_nucleo and not (par_pelo_tipo
+                                     and tipo_arquivo == tipo_exigencia):
                 # 1ª palavra do núcleo OBRIGATÓRIA + ao menos mais uma das
                 # seguintes (tolera nomes de arquivo resumidos, ex.:
                 # 'matricula_imovel.jpg' para 'Cópia da matrícula atualizada')
@@ -470,6 +720,8 @@ class ValidadorDocumentos:
                         and p not in self.STOPWORDS_NUCLEO]
             pontos = max(self._similaridade(exigencia, nome),
                          self._similaridade(ex_limpo, nome_limpo))
+            if tipo_exigencia and tipo_arquivo == tipo_exigencia:
+                pontos += 0.25   # par confirmado pelo tipo do documento
             for palavra in palavras:
                 if palavra in nome_limpo or palavra in nome_n:
                     pontos += 0.20

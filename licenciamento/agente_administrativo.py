@@ -28,7 +28,10 @@ from typing import Any, Optional
 
 import logging
 
-from licenciamento.identificador_documentos import IdentificadorDocumentos
+from licenciamento.auditor_tecnico import AuditorTecnico
+from licenciamento.identificador_documentos import (
+    IdentificadorDocumentos, conselho_do_registro, conselho_do_texto,
+    tipo_registro_por_conselho)
 
 logger = logging.getLogger("licenciamento.agente_administrativo")
 
@@ -202,33 +205,76 @@ class AgenteAdministrativo:
                 registro = (prof.get("registro") or "").strip()
                 tokens = [t for t in self._normalizar(nome).split() if len(t) >= 4]
                 reg_digitos = re.sub(r"\D", "", registro)
+                # CONSELHO declarado: 'A67154-1' -> CAU/BR (RTT/RRT);
+                # 'RS233891' -> CREA; '110544/03-D' -> CRBio (ART).
+                conselho_decl = (conselho_do_registro(registro)
+                                 or conselho_do_texto(registro))
+                tipo_decl = (tipo_registro_por_conselho(conselho_decl)
+                             or ("RRT" if re.search(r"\b(?:rrt|rtt)\b", art,
+                                                    re.I) else "ART"))
                 achou_anexo, achou_nivel = None, None
-                for anexo in anexados:
-                    texto = textos.get(anexo) or ""
-                    if not texto:
-                        continue
-                    tem_art = bool(numero) and numero in re.sub(r"\D", "", texto)
-                    if not tem_art:
-                        continue
-                    texto_n = self._normalizar(texto)
-                    tem_nome = bool(tokens) and all(t in texto_n
-                                                    for t in tokens[:3])
-                    tem_reg = (bool(reg_digitos)
-                               and reg_digitos in re.sub(r"\D", "", texto))
-                    if tem_nome or tem_reg:
-                        achou_anexo = anexo
-                        achou_nivel = ("ART/RTT + nome e registro conferidos"
-                                       if (tem_nome and tem_reg)
-                                       else ("ART/RTT + nome conferido" if tem_nome
-                                             else "ART/RTT + registro conferido"))
+                # 1ª passada: só documentos que SÃO uma ART/RTT (nunca um laudo
+                #    ou uma matrícula que por acaso cita o mesmo número);
+                # 2ª passada: demais anexos, com transparência no 'nivel'.
+                for so_registro in (True, False):
+                    for anexo in anexados:
+                        texto = textos.get(anexo) or ""
+                        if not texto:
+                            continue
+                        if so_registro:
+                            regs = AuditorTecnico.identificar_registros_rt(texto)
+                            numeros_reg = {re.sub(r"\D", "", r.get("numero") or "")
+                                           for r in regs}
+                            numeros_reg.discard("")
+                            tem_art = bool(numero) and numero in numeros_reg
+                        else:
+                            digitos = re.sub(r"\D", "", texto)
+                            tem_art = bool(numero) and numero in digitos
+                        if not tem_art:
+                            continue
+                        texto_n = self._normalizar(texto)
+                        tem_nome = bool(tokens) and all(t in texto_n
+                                                        for t in tokens[:3])
+                        tem_reg = (bool(reg_digitos)
+                                   and reg_digitos in re.sub(r"\D", "", texto))
+                        # CONSELHO do documento tem de bater com o declarado
+                        conselho_doc = (conselho_do_texto(texto)
+                                        or (conselho_do_registro(registro)
+                                            if tem_reg else None))
+                        conselho_ok = (not conselho_decl or not conselho_doc
+                                       or conselho_decl == conselho_doc)
+                        if tem_nome or tem_reg:
+                            achou_anexo = anexo
+                            nivel = ("ART/RTT + nome e registro conferidos"
+                                     if (tem_nome and tem_reg)
+                                     else ("ART/RTT + nome conferido" if tem_nome
+                                           else "ART/RTT + registro conferido"))
+                            if not conselho_ok:
+                                nivel += (f" | ATENÇÃO: conselho do documento "
+                                          f"({conselho_doc}) difere do declarado "
+                                          f"({conselho_decl}) - RTT/RRT é do "
+                                          f"CAU/BR, ART é do CREA/CRBio")
+                            if not so_registro:
+                                nivel += (" | nº localizado em documento que não "
+                                          "é o registro (ex.: laudo) - conferir")
+                            achou_nivel = nivel
+                            break
+                        if achou_nivel is None:
+                            achou_anexo, achou_nivel = anexo, \
+                                "somente o nº da ART/RTT (nome/registro não batem)"
+                    if achou_anexo:
                         break
-                    if achou_nivel is None:
-                        achou_anexo, achou_nivel = anexo, \
-                            "somente o nº da ART/RTT (nome/registro não batem)"
+                # o conselho do documento, quando achado, fica registrado
+                conselho_anexo = None
+                if achou_anexo:
+                    conselho_anexo = conselho_do_texto(textos.get(achou_anexo) or "")
                 resultado.append({
                     "profissional": nome or "(sem nome no formulário)",
                     "registro": registro or None,
                     "art_rtt": art or None,
+                    "tipo": tipo_decl,
+                    "conselho_declarado": conselho_decl,
+                    "conselho_documento": conselho_anexo,
                     "etapa": prof.get("etapa") or "",
                     "encontrado": achou_nivel is not None
                     and "somente" not in (achou_nivel or ""),
@@ -237,6 +283,232 @@ class AgenteAdministrativo:
                 })
         except Exception as exc:  # noqa: BLE001
             logger.warning("Falha ao conferir responsáveis das etapas: %s", exc)
+        return resultado
+
+    # ------------------------------------------------------------------
+    # CONFERÊNCIAS BILATERAIS (formulário <-> documentos emitidos)
+    # ------------------------------------------------------------------
+    RE_RAZAO_SOCIAL = re.compile(
+        r"(?:raz[ãa]o\s+social|denomina[çc][ãa]o\s+social|empresa|nome\s+empresarial)"
+        r"\s*[:\-]?\s*([A-ZÀ-ÿ0-9][^\n;]{3,90})", re.I)
+    RE_MATRICULA_DOC = re.compile(
+        r"matr[íi]cula\s*(?:n[ºo°.]?|atual|geral|do\s+im[óo]vel)?\s*[:\-]?\s*"
+        r"(\d[\d.\-/]{2,20})", re.I)
+
+    @classmethod
+    def _documentos_por_tipo(cls, anexados: list[str], textos: dict[str, str],
+                             tipo: str,
+                             identificador: Optional[IdentificadorDocumentos]
+                             = None) -> list[str]:
+        """Anexos que SÃO de um tipo (matrícula, CNPJ, contrato social, RRT...).
+
+        Usa nome -> aprendizado -> conteúdo; devolve [] quando nenhum anexo
+        é daquele tipo (nunca adivinha)."""
+        idf = identificador or IdentificadorDocumentos()
+        achados: list[str] = []
+        for anexo in anexados:
+            reconhecido = idf.identificar(anexo, textos.get(anexo) or "")
+            if reconhecido.get("tipo") == tipo:
+                achados.append(anexo)
+        return achados
+
+    @classmethod
+    def _conferir_matricula(cls, dados_processo: dict, anexados: list[str],
+                            textos: dict[str, str]) -> Optional[dict]:
+        """MATRÍCULA: número declarado no formulário x número do documento.
+
+        Sentido formulário -> documento (o documento é a fonte da verdade) e
+        documento -> formulário (número que não bate é divergência real).
+        Status: CONFERE | DIVERGENTE | NAO_ENCONTRADO | ANEXO_NAO_LEGIVEL."""
+        try:
+            declarado = str((dados_processo.get("empreendimento") or {})
+                            .get("matricula_imovel") or "").strip()
+            if not declarado:
+                return None
+            anexos_mat = cls._documentos_por_tipo(anexados, textos,
+                                                 "MATRICULA_IMOVEL")
+            if not anexos_mat:
+                anexos_mat = [a for a in anexados
+                              if "matricul" in cls._normalizar(a)]
+            if not anexos_mat:
+                return None
+            anexo = anexos_mat[0]
+            texto = textos.get(anexo) or ""
+            if not texto.strip():
+                return {"anexo": anexo, "matricula_formulario": declarado,
+                        "matricula_encontrada": None,
+                        "status": "ANEXO_NAO_LEGIVEL",
+                        "detalhe": "matrícula sem texto legível (escaneada e OCR "
+                                   "indisponível) - conferir manualmente"}
+            encontrados = {re.sub(r"[^\d]", "", m.group(1))
+                           for m in cls.RE_MATRICULA_DOC.finditer(texto)}
+            encontrados.discard("")
+            declarado_dig = re.sub(r"[^\d]", "", declarado)
+            if declarado_dig and declarado_dig in encontrados:
+                return {"anexo": anexo, "matricula_formulario": declarado,
+                        "matricula_encontrada": declarado,
+                        "status": "CONFERE",
+                        "detalhe": "número da matrícula confere com o documento "
+                                   "anexado"}
+            if encontrados:
+                return {"anexo": anexo, "matricula_formulario": declarado,
+                        "matricula_encontrada": sorted(encontrados)[0],
+                        "status": "DIVERGENTE",
+                        "detalhe": f"matrícula do documento ({sorted(encontrados)[0]}) "
+                                   f"DIFERE da declarada no formulário ({declarado})"}
+            return {"anexo": anexo, "matricula_formulario": declarado,
+                    "matricula_encontrada": None, "status": "NAO_ENCONTRADO",
+                    "detalhe": "número da matrícula não localizado no texto do "
+                               "documento anexado"}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Falha na conferência de matrícula: %s", exc)
+            return None
+
+    @classmethod
+    def _conferir_contrato_social(cls, dados_processo: dict, anexados: list[str],
+                                  textos: dict[str, str]) -> Optional[dict]:
+        """CONTRATO SOCIAL: razão social e CNPJ do formulário x documento.
+
+        Confronto bilateral: o CNPJ do contrato tem de ser o do requerente e a
+        razão social do contrato tem de aparecer no formulário (ou a razão
+        social anterior declarada)."""
+        try:
+            cnpj_form = re.sub(r"\D", "",
+                               (dados_processo.get("empreendedor") or {})
+                               .get("cpf_cnpj") or "")
+            razao_form = ((dados_processo.get("empreendedor") or {})
+                          .get("nome_razao_social")
+                          or (dados_processo.get("empreendimento") or {})
+                          .get("nome_empreendimento") or "")
+            razao_anterior = ((dados_processo.get("empreendedor") or {})
+                              .get("razao_social_anterior") or "")
+            anexos_contrato = cls._documentos_por_tipo(anexados, textos,
+                                                      "CONTRATO_SOCIAL")
+            if not anexos_contrato:
+                return None
+            anexo = anexos_contrato[0]
+            texto = textos.get(anexo) or ""
+            if not texto.strip():
+                return {"anexo": anexo, "status": "ANEXO_NAO_LEGIVEL",
+                        "cnpj_formulario": cnpj_form or None,
+                        "detalhe": "contrato social sem texto legível - "
+                                   "conferir manualmente"}
+            cnpjs_doc = {re.sub(r"\D", "", m.group(0))
+                         for m in cls.RE_CNPJ_TEXTO.finditer(texto)}
+            cnpjs_doc.discard("")
+            razao_doc = None
+            m_razao = cls.RE_RAZAO_SOCIAL.search(texto)
+            if m_razao:
+                razao_doc = re.sub(r"\s+", " ", m_razao.group(1)).strip(" .;-")
+                razao_doc = re.split(r"\b(?:cnpj|n[ºo°]|inscrita|com sede)\b",
+                                     razao_doc, flags=re.I)[0].strip(" .;-")
+
+            reprovados: list[str] = []
+            cnpj_confere = None
+            if len(cnpj_form) == 14:
+                cnpj_confere = cnpj_form in cnpjs_doc
+                if cnpj_confere is False:
+                    if cnpjs_doc:
+                        reprovados.append(
+                            f"CNPJ do Contrato Social ({sorted(cnpjs_doc)[0]}) "
+                            f"DIFERE do declarado no formulário ({cnpj_form}).")
+                    else:
+                        reprovados.append(
+                            "CNPJ não localizado no texto do Contrato Social - "
+                            "conferir o documento.")
+            razao_confere = None
+            if razao_form and razao_doc:
+                razao_confere = (cls._similaridade_razao(razao_form, razao_doc)
+                                 or cls._similaridade_razao(razao_anterior,
+                                                            razao_doc))
+                if razao_confere is False:
+                    reprovados.append(
+                        f"Razão social do Contrato Social ('{razao_doc}') não "
+                        f"confere com a declarada no formulário "
+                        f"('{razao_form}').")
+            return {"anexo": anexo, "status": ("CONFERE" if not reprovados
+                                               else "DIVERGENTE"),
+                    "cnpj_formulario": cnpj_form or None,
+                    "cnpj_no_documento": sorted(cnpjs_doc) or None,
+                    "razao_social_documento": razao_doc,
+                    "cnpj_confere": cnpj_confere,
+                    "razao_social_confere": razao_confere,
+                    "itens_reprovados": reprovados,
+                    "detalhe": ("Contrato Social conferido com o formulário"
+                                if not reprovados else
+                                "Divergências entre o Contrato Social e o "
+                                "formulário - ver itens.")}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Falha na conferência do Contrato Social: %s", exc)
+            return None
+
+    @staticmethod
+    def _similaridade_razao(a: str, b: str) -> bool:
+        """Razões sociais equivalentes (normaliza LTDA/ME/EPP e pontuação)."""
+        if not a or not b:
+            return False
+
+        def _limpar(t: str) -> str:
+            t = unicodedata.normalize("NFKD", t or "")
+            t = "".join(c for c in t if not unicodedata.combining(c))
+            t = re.sub(r"[^\w\s]", " ", t.lower())
+            for sufixo in ("ltda", "me", "epp", "eireli", "sa", "s a", "limitada"):
+                t = re.sub(rf"\b{re.escape(sufixo)}\b", " ", t)
+            return re.sub(r"\s+", " ", t).strip()
+
+        ta, tb = _limpar(a), _limpar(b)
+        if not ta or not tb:
+            return False
+        if ta == tb or ta in tb or tb in ta:
+            return True
+        return SequenceMatcher(None, ta, tb).ratio() >= 0.85
+
+    # ------------------------------------------------------------------
+    def _conferir_rtts_anexadas(self, dados_processo: dict, anexados: list[str],
+                                textos: dict[str, str],
+                                declaradas: list[dict]) -> list[dict]:
+        """RTTs/ARTs ANEXADAS x declaradas no formulário (sentido inverso).
+
+        Podem existir VÁLTIPLAS RTTs no processo (Projeto Urbanístico, Execução
+        de Obras...). Todo registro anexado que NÃO corresponde a nenhum
+        profissional declarado é sinalizado - evita que uma RTT de arquiteto
+        passe como se fosse a ART do engenheiro, e vice-versa."""
+        from licenciamento.auditor_tecnico import AuditorTecnico
+        from licenciamento.identificador_documentos import (
+            conselho_do_registro, conselho_do_texto, tipo_registro_por_conselho)
+        resultado: list[dict] = []
+        try:
+            # o nº declarado pode vir em 'numero' (RT principal, item 14) ou
+            # em 'art_rtt' (seção 4.3, ex.: 'ART 17246618')
+            numeros_declarados = set()
+            for d in declaradas:
+                for chave in ("numero", "art_rtt"):
+                    num = re.sub(r"\D", "", str(d.get(chave) or ""))
+                    if num:
+                        numeros_declarados.add(num)
+            for anexo in anexados:
+                texto = textos.get(anexo) or ""
+                if not texto.strip():
+                    continue
+                for registro in AuditorTecnico.identificar_registros_rt(texto):
+                    numero = re.sub(r"\D", "", registro.get("numero") or "")
+                    if not numero or numero in numeros_declarados:
+                        continue
+                    conselho = (registro.get("orgao")
+                                or conselho_do_texto(texto))
+                    tipo = (registro.get("tipo")
+                            or tipo_registro_por_conselho(conselho) or "ART")
+                    resultado.append({
+                        "anexo": anexo, "numero": registro.get("numero"),
+                        "nome": registro.get("nome"),
+                        "tipo": tipo, "conselho": conselho,
+                        "registro": registro.get("registro"),
+                        "atividade": registro.get("atividade"),
+                        "declarada_no_formulario": False,
+                        "situacao": "NAO_DECLARADA",
+                    })
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Falha ao conferir RTTs/ARTs anexadas: %s", exc)
         return resultado
 
     def _completar_campos_criticos(self, dados_processo: dict,
@@ -449,8 +721,10 @@ class AgenteAdministrativo:
         conferencia_cnpj = self._conferir_cnpj_matricula(
             dados_processo, documentos_anexados, textos)
 
-        # 2.5) Conferência dos profissionais das etapas (seção 4.3):
-        # ART/RTT de cada responsável procurada nos documentos apresentados
+        # 2.5) Conferência dos profissionais das etapas (seção 4.3) e do RT
+        # principal (item 14): cada ART/RTT declarada é procurada nos
+        # documentos, com NÚMERO + NOME + REGISTRO + CONSELHO (RTT/RRT é do
+        # CAU/BR; ART é do CREA/CRBio - os dois nunca se confundem).
         conferencia_responsaveis = self._conferir_responsaveis_etapas(
             dados_processo, documentos_anexados, textos)
         for conf in conferencia_responsaveis:
@@ -460,6 +734,48 @@ class AgenteAdministrativo:
                     f"confirmada nos documentos apresentados - conferir o "
                     f"responsável da etapa "
                     f"'{conf.get('etapa') or 'não informada'}'.")
+            elif conf.get("nivel") and "ATENÇÃO" in conf["nivel"]:
+                avisos.append(
+                    f"ART/RTT {conf['art_rtt']} ({conf['profissional']}): "
+                    f"{conf['nivel']}")
+
+        # 2.6) SENTIDO INVERSO: registros ANEXADOS que não estão declarados no
+        # formulário. Podem existir VÁRIAS RTTs no processo (Projeto
+        # Urbanístico, Execução de Obras...): cada uma precisa estar declarada
+        # na seção 4.3 ou no item 14 - do contrário, é pendência.
+        declaradas = list(dados_processo.get("responsaveis_etapas") or [])
+        rt_principal = dados_processo.get("responsavel_tecnico") or {}
+        if rt_principal.get("registro_art"):
+            declaradas.append({"nome": rt_principal.get("nome"),
+                               "registro": rt_principal.get("registro_crea"),
+                               "numero": rt_principal.get("registro_art"),
+                               "etapa": "Responsável Técnico principal (item 14)"})
+        conferencia_rtts_anexadas = self._conferir_rtts_anexadas(
+            dados_processo, documentos_anexados, textos, declaradas)
+        for reg in conferencia_rtts_anexadas:
+            avisos.append(
+                f"{reg['tipo']} nº {reg['numero']} "
+                f"({reg.get('nome') or 'profissional não identificado'}, "
+                f"{reg.get('conselho') or 'conselho não identificado'}) está "
+                f"ANEXADA ao processo mas NÃO foi declarada no formulário "
+                f"(seção 4.3 / item 14) - conferir o responsável da etapa "
+                f"'{reg.get('atividade') or 'não informada'}'.")
+
+        # 2.7) CONFRONTO BILATERAL dos documentos emitidos:
+        # MATRÍCULA e CONTRATO SOCIAL x dados declarados no formulário
+        conferencia_matricula = self._conferir_matricula(
+            dados_processo, documentos_anexados, textos)
+        conferencia_contrato_social = self._conferir_contrato_social(
+            dados_processo, documentos_anexados, textos)
+        for conf in (conferencia_matricula, conferencia_contrato_social):
+            if not conf:
+                continue
+            if conf.get("status") == "DIVERGENTE":
+                for item in (conf.get("itens_reprovados")
+                             or [conf.get("detalhe") or "divergência"]):
+                    avisos.append(f"⚠️ {conf['anexo']}: {item}")
+            elif conf.get("status") in ("NAO_ENCONTRADO", "ANEXO_NAO_LEGIVEL"):
+                avisos.append(f"⚠️ {conf['anexo']}: {conf.get('detalhe')}")
 
         # 3) Status consolidado -------------------------------------------
         if bloqueios:
@@ -477,13 +793,22 @@ class AgenteAdministrativo:
             "documentos_pendentes": documentos_pendentes,
             "origem_ok": origem_ok,
             "conferencia_responsaveis": conferencia_responsaveis,
+            "conferencia_rtts_anexadas": conferencia_rtts_anexadas,
             "conferencia_cnpj": conferencia_cnpj,
+            "conferencia_matricula": conferencia_matricula,
+            "conferencia_contrato_social": conferencia_contrato_social,
             "avisos": avisos,
             "resumo": {
                 "total_exigidos": len(exigidos),
                 "total_ok": len(documentos_ok),
                 "total_pendentes": len(documentos_pendentes),
                 "total_anexados_informados": len(documentos_anexados),
+                "rtts_anexadas_nao_declaradas":
+                    len(conferencia_rtts_anexadas),
+                "divergencias_documentais": sum(
+                    1 for c in (conferencia_cnpj, conferencia_matricula,
+                                conferencia_contrato_social)
+                    if c and c.get("status") == "DIVERGENTE"),
             },
         }
         logger.info("Auditoria administrativa concluída: %s", status_geral)

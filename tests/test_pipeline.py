@@ -1576,19 +1576,49 @@ def test_trs_dupla_checagem_roteamento_divergente_e_instavel():
                                                ResultadoValidacao)
     from licenciamento.esquemas_tecnicos import StatusValidacao
     auditor = AuditorTecnico()
-    # título declara LCV, mas a disputa RFO x LCV mantém só o RFO:
-    # a dupla checagem de roteamento SINALIZA a ausência do TR esperado
+    # O TÍTULO é a autoridade: um laudo que se DECLARA LCV NÃO recebe o TR de
+    # RFO/geologia só porque o corpo cita 'reposição florestal' ou 'sondagem'
+    # (aplicação cruzada de TR - correção pedida pelo licenciador).
     texto = ("LAUDO DE COBERTURA VEGETAL\nTexto sobre reposição florestal: "
              "densidade de plantio de mudas nativas para compensação de "
-             "indivíduos suprimidos.\n")
+             "indivíduos suprimidos. Foram consultadas sondagens anteriores.\n")
     res = auditor.auditar_com_dupla_checagem("misto.pdf", texto)
-    assert any("roteamento" in r.norma_tr.lower() for r in res), \
-        [r.norma_tr for r in res]
-    # e o oposto: título geológico com sondagem aplicada NÃO sinaliza
+    normas = [r.norma_tr for r in res]
+    assert any("Cobertura" in n for n in normas), normas
+    assert not any("RFO" in n for n in normas), normas
+    assert not any("Meio Físico" in n for n in normas), normas
+    assert not any("roteamento" in n.lower() for n in normas), normas
+
+    # o tipo DECLARADO no título sempre vence, nos dois sentidos
+    for titulo, tr_esperado, tr_proibido in [
+        ("INVENTÁRIO DE FAUNA\nA cobertura vegetal local é floresta "
+         "ombrófila; busca ativa para mastofauna.", "Fauna", "Cobertura"),
+        ("LAUDO GEOLÓGICO\nSondagens e ensaios de infiltração; fauna "
+         "silvestre avistada no entorno.", "Meio Físico", "Fauna"),
+    ]:
+        r = auditor.auditar_com_dupla_checagem("doc.pdf", titulo)
+        ns = [x.norma_tr for x in r]
+        assert any(tr_esperado in n for n in ns), (titulo, ns)
+        assert not any(tr_proibido in n for n in ns), (titulo, ns)
+
+    # título geológico com sondagem aplicada NÃO sinaliza roteamento
     res_ok = auditor.auditar_com_dupla_checagem(
         "geo2.pdf", "LAUDO GEOLÓGICO\nSondagens e ensaios de infiltração; "
         "lençol freático a 2,5 m.\n")
     assert not any("roteamento" in r.norma_tr.lower() for r in res_ok)
+
+    # REDE DE SEGURANÇA: se o roteador não devolver o TR que o título declara,
+    # a dupla checagem SINALIZA (nunca silencia)
+    class AuditorSemRoteamento(AuditorTecnico):
+        def _rotear_trs(self, texto, nome_documento=None, tipo_documento=None):
+            return []
+
+    res_alerta = AuditorSemRoteamento().auditar_com_dupla_checagem(
+        "geo3.pdf", "LAUDO GEOLÓGICO\nSondagens e ensaios de infiltração.\n")
+    assert any("roteamento" in r.norma_tr.lower() for r in res_alerta), \
+        [r.norma_tr for r in res_alerta]
+    assert any("NENHUM TR correspondente" in i
+               for r in res_alerta for i in r.itens_reprovados)
 
     class AuditorInstavel(AuditorTecnico):
         def __init__(self):

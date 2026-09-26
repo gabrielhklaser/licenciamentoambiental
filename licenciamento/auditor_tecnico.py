@@ -410,15 +410,44 @@ class AuditorTecnico:
         dist_info = self._num(re.compile(
             r"dist[âa]ncia\s+vertical[^.;\d]{0,100}?(\d{1,2}[.,]?\d{0,2})\s*m", re.I), texto)
         prof_inv = self._num(re.compile(
+            r"(?:sondagem|sondagens|furo|furos|furossondagem|perfura[çc][ãa]o|"
+            r"trincheira)[^.;]{0,60}?(?:at[ée]|profundidade(?:\s+m[áa]xima)?(?:\s+de)?)\s+"
+            r"(\d{1,2}[.,]?\d{0,2})\s*m", re.I), texto) \
+            or self._num(re.compile(
             r"(?:profundidade|profundidades)[^.;]{0,60}?(\d{1,2}[.,]?\d{0,2})\s*m(?:etros)?\s+"
             r"de\s+(?:profundidade|investiga)", re.I), texto) \
             or self._num(re.compile(
                 r"(?:sondagem|investiga[çc][ãa]o|trincheira)s?[^.;]{0,80}?(\d{1,2}[.,]?\d{0,2})\s*"
-                r"m(?:etros)?\s+de\s+profundidade", re.I), texto)
-        ensaios = self._num(re.compile(
-            r"(\d{1,2})\s*ensaios?\s+de\s+permeabilidade", re.I), texto) \
+                r"m(?:etros)?\s+de\s+profundidade", re.I), texto) \
             or self._num(re.compile(
-                r"ensaios?\s+de\s+permeabilidade[^.;\d]{0,40}?(\d{1,2})", re.I), texto)
+                r"profundidade\s+de\s+investiga[çc][ãa]o[^.;\d]{0,40}?"
+                r"(\d{1,2}[.,]?\d{0,2})\s*m(?:etros)?", re.I), texto) \
+            or self._num(re.compile(
+                r"(?:atingindo|profundidade\s+(?:m[áa]xima\s+)?(?:de\s+)?)"
+                r"[^.;\d]{0,40}?(\d{1,2}[.,]?\d{0,2})\s*m(?:etros)?\s+de\s+profundidade",
+                re.I), texto) \
+            or self._num(re.compile(
+                r"(\d{1,2}[.,]?\d{0,2})\s*m(?:etros)?\s+de\s+profundidade", re.I), texto)
+        # "ensaios de permeabilidade" (termo de laboratório/NBR 7229/13969) e
+        # "ensaios de infiltração" (termo do TR Laudo Geológico / checklist
+        # oficial) designam o MESO ensaio de campo - ambos são aceitos.
+        ensaios = self._num(re.compile(
+            r"(\d{1,2})\s*ensaios?\s+(?:de\s+)?(?:permeabilidade|infiltra[çc][ãa]o)",
+            re.I), texto) \
+            or self._num(re.compile(
+                r"ensaios?\s+(?:de\s+)?(?:permeabilidade|infiltra[çc][ãa]o)"
+                r"[^.;\d]{0,40}?(\d{1,2})", re.I), texto) \
+            or self._num(re.compile(
+                r"(?:permeabilidade|infiltra[çc][ãa]o)[^.;\d]{0,40}?"
+                r"(\d{1,2})\s*ensaios?", re.I), texto)
+        # ensaio de infiltração duplo anel / tubo aberto citado sem quantidade
+        if ensaios is None and re.search(
+                r"ensaio\s+de\s+infiltra[çc][ãa]o|infiltra[çc][ãa]o\s+duplo\s+anel",
+                texto, re.I):
+            m_inf = re.search(r"(\d{1,2})\s*(?:ensaios?|pontos?|furos?)\s+"
+                              r"(?:de\s+)?infiltra", texto, re.I)
+            if m_inf:
+                ensaios = self._num(re.compile(r"(\d{1,2})"), m_inf.group(1))
         imperm = bool(re.search(r"impermeabiliza|argila\s+compactada", texto, re.I))
 
         # Localização de página conforme GabeBrain
@@ -942,11 +971,16 @@ class AuditorTecnico:
             if t_doc in ("EIV", "LCV", "FAUNA", "SONDAGEM", "PCA", "PRAD", "RFO"):
                 return [t_doc]
             if t_doc in (
-                "ART", "MATRICULA_IMOVEL", "CNPJ", "CONTRATO_SOCIAL", "ALVARA_BOMBEIROS",
-                "ALVARA_MUNICIPAL", "PROJETO_ARQUITETONICO", "RELATORIO_FOTOGRAFICO",
-                "CERTIDAO_ZONEAMENTO", "VIABILIDADE_RESIDUOS", "VIABILIDADE_AGUA",
-                "VIABILIDADE_ESGOTO", "VIABILIDADE_ENERGIA", "DECLARACAO_ALAGAMENTO",
-                "DIRETRIZES_URBANISTICAS", "FORMULARIO", "FORMULARIO_ENQUADRAMENTO"
+                "ART", "RRT", "MATRICULA_IMOVEL", "CNPJ", "CONTRATO_SOCIAL",
+                "ALVARA_BOMBEIROS", "ALVARA_MUNICIPAL", "PROJETO_ARQUITETONICO",
+                "RELATORIO_FOTOGRAFICO", "CERTIDAO_ZONEAMENTO",
+                "VIABILIDADE_RESIDUOS", "VIABILIDADE_AGUA", "VIABILIDADE_ESGOTO",
+                "VIABILIDADE_ENERGIA", "DECLARACAO_ALAGAMENTO",
+                "DIRETRIZES_URBANISTICAS", "PLANTA_LOCALIZACAO", "PROJETO_URBANISTICO",
+                "PROJETO_EXECUTIVO", "RCA", "FORMULARIO", "FORMULARIO_ENQUADRAMENTO",
+                # camadas GIS (KMZ/KML/shapefile) têm confronto GEOMÉTRICO -
+                # skill gis-multicamadas: nenhum TR de conteúdo se aplica
+                "CAMADA_GIS"
             ):
                 return []
 
@@ -984,11 +1018,22 @@ class AuditorTecnico:
                 "contrato social", "cnh", "cnpj", "matricula", "croqui",
                 "diretrizes urbanisticas", "relatorio fotografico",
                 "viabilidade", "art", "rrt", "projeto urbanistico",
-                "projeto arquitetonico", "planta"
+                "projeto arquitetonico", "planta",
+                # camadas geoespaciais (exigência 'KMZ/KML e DWG')
+                "kmz", "kml", "geojson", "shapefile", "curvas de nivel",
+                "mapa de app", "gpx"
             ]):
                 return []
 
         t = ProvedorLLMHeuristico._norm(texto)
+
+        # 2.1 TÍTULO/CABEÇALHO manda: o que o documento DECLARA SER define o
+        # TR. Sem esta PriorIDADE, um Laudo de Cobertura Vegetal que cita
+        # 'sondagem' no corpo (ou um laudo geológico que cita 'fauna')
+        # receberia o TR cruzado - a aplicação cruzada de TR é proibida.
+        tr_titulo = self._tr_esperado_pelo_titulo(texto, nome_documento=nome_documento)
+        if tr_titulo:
+            return [tr_titulo]
 
         # 3. Pontua o conteúdo textual
         # --- EIV (estudo de impacto de vizinhança) ---
@@ -1077,9 +1122,12 @@ class AuditorTecnico:
             else:
                 score.pop("PCA", None)
 
-        # Disputa Meio Físico/Sondagem x Fauna/Flora:
+        # Disputa Meio Físico/Sondagem x Flora/Fauna: menções incidentais a
+        # 'sondagem' dentro de um laudo de cobertura vegetal (ou a 'fauna'
+        # dentro de um laudo geológico) NÃO deslocam o TR do estudo principal.
+        # Só o TR com estrito predominância sobrevive.
         if score.get("SONDAGEM") and (score.get("FAUNA") or score.get("LCV")):
-            if score["SONDAGEM"] >= max(score.get("FAUNA", 0), score.get("LCV", 0)):
+            if score["SONDAGEM"] > max(score.get("FAUNA", 0), score.get("LCV", 0)):
                 score.pop("FAUNA", None)
                 score.pop("LCV", None)
             else:
@@ -1105,39 +1153,79 @@ class AuditorTecnico:
         r"titular|t[eé]cnico respons[aá]vel)\s*(?:\(a\))?\s*[:\-]?\s*"
         r"([^\n:]{4,60})", re.I)
 
-    @classmethod
-    def identificar_art_rtt(cls, texto: str, nome_documento: Optional[str] = None) -> Optional[dict]:
-        """Identifica se o documento É uma ART/RTT (anotação de responsabilidade),
-        extraindo o NÚMERO e o NOME do profissional. Documentos escaneados de
-        foto chegam aqui já com o texto extraído via OCR.
+    # título do PRÓPRIO registro - é o que separa uma ART/RTT de um laudo que
+    # apenas a menciona e de um projeto urbanístico que cita a ART de quem assina
+    RE_TITULO_REGISTRO = re.compile(
+        r"anota[çc][ãa]o\s+de\s+responsabilidade\s+t[ée]cnica|"
+        r"registro\s+de\s+responsabilidade\s+t[ée]cnica|"
+        r"^\s*(?:art|rrt|rtt)\s*(?:n[ºo°.]?\s*)?[:\-]?\s*\d{4,12}",
+        re.I | re.M)
+    RE_REGISTRO_PROF = re.compile(
+        r"\b(?:CREA|CAU|CRBio|CRB)\b[^\n]{0,18}?"
+        r"([A-Za-z]?[\s\-]?\d{4,8}(?:[\-/]\d{1,3})?)", re.I)
+    # atividade/etapa declarada no registro (podem existir VÁRIAS RTTs:
+    # Projeto Urbanístico, Execução de Obras, Arborização...)
+    RE_ATIVIDADE_REGISTRO = re.compile(
+        r"(?:descri[çc][ãa]o\s+(?:sum[áa]ria\s+)?(?:da\s+)?atividade|"
+        r"atividade\s+t[ée]cnica|\batividade\b|\betapa\b|objeto|finalidade|"
+        r"servi[çc]o)\s*[:\-]?\s*([^\n]{4,160})", re.I)
 
-        Exige o PAR forte: nº da ART declarado + (CREA/CAU/CRBio ou RTT/anotação) -
-        um laudo que apenas MENCIONA 'com ART de responsável técnico' não é
-        uma ART. Retorna {'numero', 'nome'} ou None."""
+    @classmethod
+    @staticmethod
+    def _numero_do_match(m: "re.Match") -> Optional[str]:
+        """Nº do registro a partir de um match de RE_NUM_ART_DOC."""
+        raw = (m.group(1) or "").strip()
+        m_dig = re.search(r"\d{6,12}", raw)
+        return m_dig.group(0) if m_dig else (re.sub(r"\D", "", raw) or None)
+
+    @classmethod
+    def identificar_art_rtt(cls, texto: str,
+                            nome_documento: Optional[str] = None,
+                            numero_alvo: Optional[str] = None) -> Optional[dict]:
+        """Identifica se o documento É uma ART/RTT (registro de responsabilidade
+        técnica), extraindo NÚMERO, NOME, CONSELHO e TIPO. Documentos escaneados
+        de foto chegam aqui já com o texto extraído por OCR.
+
+        REGRA DO LICENCIADOR: RTT/RRT pertencem SEMPRE ao CAU/BR (Conselho de
+        Arquitetura e Urbanismo) e a Arquitetos e Urbanistas; a ART é registro
+        do CREA/CRBio. O campo `tipo` devolve 'RRT' (CAU/BR) ou 'ART'
+        (CREA/CRBio) e `orgao` o conselho - os dois nunca se confundem.
+
+        Exige o PAR forte: nº do registro declarado + (título do registro ou
+        conselho profissional). Um laudo que apenas MENCIONA 'com ART de
+        responsável técnico' NÃO é uma ART, e um projeto urbanístico que cita a
+        ART de quem assina também não é (evita TR aplicado a arquivo errado).
+
+        Retorna {'numero', 'nome', 'tipo', 'orgao', 'registro', 'atividade'}
+        ou None."""
         if nome_documento:
             nd = ProvedorLLMHeuristico._norm(nome_documento)
-            if any(k in nd for k in ["formulario", "eiv", "laudo", "inventario", "declaracao", "contrato", "certidao", "projeto urbanistico", "projeto arquitetonico"]):
+            if any(k in nd for k in ["formulario", "eiv", "laudo", "inventario",
+                                     "declaracao", "contrato", "certidao"]):
                 return None
+        if not texto or not texto.strip():
+            return None
         t = ProvedorLLMHeuristico._norm(texto)
+        tem_titulo = cls.RE_TITULO_REGISTRO.search(texto[:900]) is not None
         tem_orgao = any(k in t for k in [
-            "crea", "cau", "crbio", "crbi", "confea", "mutua",
-            "anotacao de responsabilidade", "registro de responsabilidade", "caubr"
-        ])
-        tem_termo_art = bool(re.search(r"\b(art|rrt|rtt)\b", t))
-        if not (tem_orgao or tem_termo_art):
+            "crea", "cau", "crbio", "crbi", "confea", "mutua", "caubr",
+            "conselho regional", "conselho de arquitetura"])
+        if not (tem_titulo or tem_orgao):
             return None
 
-        m_num = cls.RE_NUM_ART_DOC.search(texto)
+        # VÁRIAS RTTs/ARTs podem conviver no mesmo arquivo: quando há um
+        # número-alvo (extração registro a registro), só aquele conta.
+        m_num = None
+        for cand in cls.RE_NUM_ART_DOC.finditer(texto):
+            num_cand = cls._numero_do_match(cand)
+            if numero_alvo and num_cand != numero_alvo:
+                continue
+            m_num = cand
+            break
         if not m_num:
             return None
 
-        raw_num = m_num.group(1).strip()
-        m_dig = re.search(r"\d{6,12}", raw_num)
-        if m_dig:
-            numero = m_dig.group(0)
-        else:
-            numero = re.sub(r"\D", "", raw_num) or None
-
+        numero = cls._numero_do_match(m_num)
         if not numero or len(numero) < 5:
             return None
 
@@ -1156,7 +1244,74 @@ class AuditorTecnico:
                 if len(cand) >= 4 and not any(w in cand.upper() for w in ["CONSELHO", "SERVIÇO", "CPF", "CNPJ", "MARIA JOAQUINA", "EMPRESA"]):
                     nome = cand
 
-        return {"numero": numero, "nome": nome}
+        # ---- conselho e TIPO do registro (RTT/RRT é do CAU/BR) --------
+        from .identificador_documentos import (conselho_do_registro,
+                                               conselho_do_texto)
+        orgao = conselho_do_texto(texto)
+        registro = None
+        m_reg = cls.RE_REGISTRO_PROF.search(texto)
+        if m_reg:
+            registro = re.sub(r"\s+", "", m_reg.group(1))
+            if not orgao:
+                orgao = conselho_do_registro(registro)
+        # nº de registro no CAU costuma vir solto ('A67154-1')
+        if not registro:
+            m_cau = re.search(r"\b(A\d{4,8}(?:-\d)?)\b", texto)
+            if m_cau:
+                registro = m_cau.group(1)
+                orgao = orgao or "CAU/BR"
+        tipo_registro = ("RRT" if (orgao == "CAU/BR"
+                                   or bool(re.search(r"\b(?:rrt|rtt)\b", t)))
+                         else "ART")
+
+        atividade = None
+        # a atividade/etapa vem DEPOIS do nº do registro: com VÁRIAS RTTs no
+        # mesmo arquivo, buscar no texto inteiro devolveria a atividade da
+        # RTT anterior (aplicação cruzada de informação).
+        m_ativ = (cls.RE_ATIVIDADE_REGISTRO.search(texto[m_num.end():
+                                                       m_num.end() + 600])
+                  or cls.RE_ATIVIDADE_REGISTRO.search(texto))
+        if m_ativ:
+            atividade = re.sub(r"\s+", " ", m_ativ.group(1)).strip(" .;-")
+
+        return {"numero": numero, "nome": nome, "tipo": tipo_registro,
+                "orgao": orgao, "registro": registro, "atividade": atividade}
+
+    @classmethod
+    def identificar_registros_rt(cls, texto: str,
+                                 nome_documento: Optional[str] = None) -> list[dict]:
+        """TODOS os registros de responsabilidade técnica de um documento.
+
+        Um único arquivo pode concentrar VÁRIAS RTTs (Projeto Urbanístico e
+        Execução de Obras, por exemplo) ou a ART de mais de um profissional.
+        Cada registro vem com número, nome, conselho, tipo e atividade, para
+        que a conferência com o formulário seja feita UM A UM."""
+        if not texto or not texto.strip():
+            return []
+        t = ProvedorLLMHeuristico._norm(texto)
+        if not any(k in t for k in ["crea", "cau", "crbio", "confea",
+                                    "anotacao de responsabilidade",
+                                    "registro de responsabilidade"]):
+            return []
+        vistos: set[str] = set()
+        saida: list[dict] = []
+        for m in cls.RE_NUM_ART_DOC.finditer(texto):
+            numero = cls._numero_do_match(m)
+            if not numero or len(numero) < 5 or numero in vistos:
+                continue
+            vistos.add(numero)
+            # janela a partir do nº encontrado (sem look-back longo, que
+            # acabaria lendo o registro ANTERIOR quando há vários)
+            janela = texto[max(0, m.start() - 120):m.end() + 400]
+            registro = cls.identificar_art_rtt(janela, nome_documento=None,
+                                               numero_alvo=numero)
+            if registro and registro.get("numero") == numero:
+                saida.append(registro)
+        if not saida:
+            unico = cls.identificar_art_rtt(texto, nome_documento=nome_documento)
+            if unico:
+                saida.append(unico)
+        return saida
 
     def _conferir_art_com_formulario(
             self, nome_documento: str, art_doc: dict,
@@ -1173,16 +1328,21 @@ class AuditorTecnico:
             deve pertencer ao RT da seção 8 do formulário."""
         norma = "Conferência ART/RTT × formulário HTML"
         numero_doc, nome_doc = art_doc.get("numero"), art_doc.get("nome")
+        tipo_doc = (art_doc.get("tipo") or "ART").upper()
+        orgao_doc = art_doc.get("orgao")
         t_doc = ProvedorLLMHeuristico._norm(texto or "")
         metricas = {"art_documento": numero_doc, "nome_documento": nome_doc,
+                    "tipo_registro": tipo_doc, "conselho_documento": orgao_doc,
+                    "registro_profissional": art_doc.get("registro"),
+                    "atividade_declarada": art_doc.get("atividade"),
                     "arts_declaradas": arts_formulario or []}
         if not arts_formulario:
             return ResultadoValidacao(
                 documento_analisado=nome_documento, norma_tr=norma,
                 status=StatusValidacao.REVISAO_MANUAL,
-                itens_reprovados=["Documento identificado como ART/RTT "
-                                  f"(nº {numero_doc or 'não legível'}) e nenhum "
-                                  "formulário HTML carregado para a "
+                itens_reprovados=["Documento identificado como "
+                                  f"{tipo_doc} (nº {numero_doc or 'não legível'}) "
+                                  "e nenhum formulário HTML carregado para a "
                                   "conferência número/nome."],
                 metricas=metricas, origem=OrigemAnalise.DETERMINISTICO)
 
@@ -1204,10 +1364,28 @@ class AuditorTecnico:
                 key=lambda d: 0 if (str(d.get("secao")) == "8" or "licenciamento" in str(d.get("etapa", "")).lower()) else 1
             )
 
+        from .identificador_documentos import (conselho_do_registro,
+                                               conselho_do_texto)
         for declarada in lista_declaradas:
             num_decl = re.sub(r"\D", "", declarada.get("numero") or "")
             bate_num = bool(numero_doc and num_decl
                             and numero_doc == num_decl)
+            # ---- CONSELHO: RTT/RRT é do CAU/BR; ART é do CREA/CRBio ----
+            conselho_decl = (conselho_do_texto(declarada.get("registro") or "")
+                             or conselho_do_registro(declarada.get("registro") or "")
+                             or conselho_do_texto(declarada.get("conselho") or ""))
+            tipo_decl = (str(declarada.get("tipo") or "").upper()
+                         or None)
+            if not tipo_decl and conselho_decl:
+                tipo_decl = "RRT" if conselho_decl == "CAU/BR" else "ART"
+            if not tipo_decl:
+                tipo_decl = ("RRT" if re.search(r"\b(?:rrt|rtt)\b",
+                                                str(declarada.get("numero") or ""),
+                                                re.I) else "ART")
+            metricas["conselho_declarado"] = conselho_decl
+            metricas["tipo_declarado"] = tipo_decl
+            conselho_incompativel = bool(
+                conselho_decl and orgao_doc and conselho_decl != orgao_doc)
             nome_decl = declarada.get("nome") or ""
             tokens_decl = _tokens(nome_decl)
             no_doc = False
@@ -1228,6 +1406,22 @@ class AuditorTecnico:
             bate_nome = no_doc or no_extraido
             if bate_num:
                 metricas["nome_localizado_no_documento"] = bool(no_doc)
+                if conselho_incompativel:
+                    metricas["conselho_incompativel"] = True
+                    reg_txt = declarada.get("registro") or "sem registro"
+                    return ResultadoValidacao(
+                        documento_analisado=nome_documento, norma_tr=norma,
+                        status=StatusValidacao.REVISAO_MANUAL,
+                        itens_reprovados=[
+                            f"{tipo_doc} nº {numero_doc} confere com o "
+                            f"formulário, mas o CONSELHO não bate: o documento "
+                            f"foi emitido por {orgao_doc} e o registro "
+                            f"declarado ({reg_txt}) é de {conselho_decl}. "
+                            f"RTT/RRT é exclusivo do CAU/BR (Arquitetos e "
+                            f"Urbanistas) e ART é do CREA/CRBio - conferir o "
+                            f"profissional e o registro apresentado."],
+                        metricas=metricas,
+                        origem=OrigemAnalise.DETERMINISTICO)
                 if bate_nome:
                     eh_rt_licenciamento = (str(declarada.get("secao")) == "8"
                                            or "licenciamento" in str(declarada.get("etapa", "")).lower())
@@ -1430,20 +1624,41 @@ class AuditorTecnico:
     ]
 
     @classmethod
-    def _tr_esperado_pelo_titulo(cls, texto: str, nome_documento: Optional[str] = None) -> Optional[str]:
-        """O que o documento se DECLARA SER, lido no nome do arquivo ou no título/abertura."""
+    def _tr_esperado_pelo_titulo(cls, texto: str,
+                                 nome_documento: Optional[str] = None) -> Optional[str]:
+        """O que o documento se DECLARA SER, lido no nome ou no título/abertura.
+
+        O documento se DECLARA no início: 'INVENTÁRIO DE FAUNA ... a cobertura
+        vegetal local...' declara FAUNA, não LCV. Por isso a decisão é pela
+        ocorrência MAIS CEDO do cabeçalho (empate: frase mais específica, e
+        sigla só vale se estiver no início) - nunca pela ordem da tabela.
+        Assim um TR não é aplicado de forma cruzada a outro tipo de estudo."""
         if nome_documento:
             nome_norm = ProvedorLLMHeuristico._norm(nome_documento)
-            if any(p in nome_norm for p in ("declaracao", "atestado", "certidao", "requerimento", "matricula", "contrato", "art", "rrt", "cnh", "cnpj", "croqui")):
+            if any(p in nome_norm for p in ("declaracao", "atestado", "certidao",
+                                            "requerimento", "matricula", "contrato",
+                                            "art", "rrt", "cnh", "cnpj", "croqui")):
                 return None
             for palavra, tr in cls.TR_ESPERADO_PELO_TITULO:
                 if palavra in nome_norm:
                     return tr
         cabecalho = ProvedorLLMHeuristico._norm(texto)[:1200]
+        if not cabecalho:
+            return None
+        # siglas curtas (eiv, pca, lcv...) só decidem perto do início
+        SIGLAS = {"eiv", "pca", "lcv", "lfs", "prad", "rfo"}
+        melhor: tuple[tuple[int, int, int], Optional[str]] = ((10 ** 6, 0, 0), None)
         for palavra, tr in cls.TR_ESPERADO_PELO_TITULO:
-            if palavra in cabecalho:
-                return tr
-        return None
+            pos = cabecalho.find(palavra)
+            if pos < 0:
+                continue
+            eh_sigla = palavra in SIGLAS
+            if eh_sigla and pos > 200:
+                continue  # sigla no meio do texto não é declaração de tipo
+            chave = (pos, -len(palavra), 0 if not eh_sigla else 1)
+            if chave < melhor[0]:
+                melhor = (chave, tr)
+        return melhor[1]
 
     def auditar_com_dupla_checagem(self, nome_documento: str, texto: str,
                                    arts_formulario: Optional[list[dict]] = None,
@@ -1521,15 +1736,23 @@ class AuditorTecnico:
         recebem TR de conteúdo: são conferidas (número + nome do profissional)
         com as ARTs declaradas no formulário HTML (arts_formulario)."""
         resultados: list[ResultadoValidacao] = []
-        # PROJETOS URBANÍSTICOS com plantas: dupla checagem profissional + áreas
-        if self._eh_projeto_urbanistico(texto):
-            resultados.append(self.conferir_projeto_urbanistico(
-                nome_documento, texto, arts_formulario, areas_formulario))
+        # CAMADAS GIS: confronto GEOMÉTRICO (skill gis-multicamadas), nunca TR
+        # de conteúdo nem conferência de projeto urbanístico
+        if tipo_documento == "CAMADA_GIS":
             return resultados
+        # REGISTRO (ART/RTT) tem prioridade: um RRT cuja atividade é 'Projeto
+        # Urbanístico' é um REGISTRO do CAU/BR, não um projeto. Um projeto que
+        # apenas CITA a ART de quem assina continua na rota urbanística
+        # (identificar_art_rtt devolve None sem título de registro/conselho).
         art_doc = self.identificar_art_rtt(texto, nome_documento=nome_documento)
         if art_doc is not None:
             resultados.append(self._conferir_art_com_formulario(
                 nome_documento, art_doc, arts_formulario, texto=texto))
+            return resultados
+        # PROJETOS URBANÍSTICOS com plantas: dupla checagem profissional + áreas
+        if self._eh_projeto_urbanistico(texto):
+            resultados.append(self.conferir_projeto_urbanistico(
+                nome_documento, texto, arts_formulario, areas_formulario))
             return resultados
         if len(texto.strip()) < 40:
             resultados.append(ResultadoValidacao(

@@ -21,15 +21,21 @@
     },
     {
       "nome": "rrt",
-      "tipo": "ART",
-      "data": "2026-09-16",
-      "evidencia": "3 assinaturas no conteúdo"
+      "tipo": "RRT",
+      "data": "2026-09-26",
+      "evidencia": "corrigido: RTT/RRT e registro do CAU/BR (Arquitetos e Urbanistas), nao ART de CREA/CRBio"
     },
     {
       "nome": "eiv, elaborado de acordo com o tr desta secretaria, com art de responsavel tecnico habilitado",
       "tipo": "EIV",
       "data": "2026-09-16",
       "evidencia": "2 assinaturas no conteúdo"
+    },
+    {
+      "nome": "doc escaneado 0912",
+      "tipo": "ART",
+      "data": "2026-09-26",
+      "evidencia": "3 assinaturas no conteúdo"
     }
   ]
 }

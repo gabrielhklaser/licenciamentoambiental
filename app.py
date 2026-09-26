@@ -28,6 +28,7 @@ import streamlit as st
 
 from licenciamento.agente_administrativo import AgenteAdministrativo
 from licenciamento.agente_financeiro import AgenteFinanceiro
+from licenciamento.agente_gis import NORMA_GIS, AgenteGIS
 from licenciamento.auditor_tecnico import AuditorTecnico
 from licenciamento.calibracao import Calibracao
 from licenciamento.esquemas_tecnicos import StatusValidacao
@@ -40,7 +41,8 @@ importlib.reload(licenciamento.compilador_parecer)
 from licenciamento.compilador_parecer import (compilar_texto_parecer,
                                               exportar_docx, exportar_pdf)
 from licenciamento.parser_formulario import FormularioParser
-from licenciamento.validador_documentos import (EXTENSOES_IMAGEM,
+from licenciamento.validador_documentos import (EXTENSOES_GIS,
+                                                EXTENSOES_IMAGEM,
                                                 EXTENSOES_TEXTO,
                                                 ValidadorDocumentos)
 
@@ -261,13 +263,18 @@ if st.session_state.get("auditoria"):
 # às vezes são enviadas como fotos/escaneamentos (png, jpg, etc.)
 FORMATOS_UPLOAD = ["htm", "html", "pdf", "docx", "doc", "xlsx", "xls",
                    "txt", "csv", "rtf",
-                   "png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff", "gif"]
+                   "png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff", "gif",
+                   # camadas GIS exigidas pelo checklist oficial
+                   # ("Arquivo KMZ/KML ... curvas de nível e mapa de APPs")
+                   "kml", "kmz", "geojson", "gpx"]
 
 
 def icone_arquivo(nome: str) -> str:
-    """Ícone do arquivo na listagem do upload (imagem x documento)."""
+    """Ícone do arquivo na listagem do upload (imagem x GIS x documento)."""
     if Path(nome).suffix.lower() in EXTENSOES_IMAGEM:
         return "🖼️"
+    if Path(nome).suffix.lower() in EXTENSOES_GIS:
+        return "🗺️"
     if Path(nome).suffix.lower() in (".htm", ".html"):
         return "🧾"
     return "📄"
@@ -321,6 +328,30 @@ def rodape_calibracao() -> None:
 # ======================================================================
 # ETAPA 2 — Motor da análise (parser + agentes + quadro + parecer)
 # ======================================================================
+def _ponto_do_formulario(dados: dict) -> Optional[tuple[float, float]]:
+    """Ponto do empreendimento em (longitude, latitude) graus decimais.
+
+    Os formulários do RS declaram UTM (E/N/Fuso 22S); as camadas GIS vêm em
+    geográficas - a conversão é obrigatória para o confronto geométrico
+    (skill gis-multicamadas)."""
+    from licenciamento.leitor_gis import utm_para_lonlat
+    coord = (dados.get("empreendimento") or {}).get("coordenadas") or {}
+    if not isinstance(coord, dict):
+        return None
+    lat, lon = coord.get("latitude"), coord.get("longitude")
+    if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
+        return (float(lon), float(lat))
+    leste, norte = coord.get("easting_m"), coord.get("northing_m")
+    if isinstance(leste, (int, float)) and isinstance(norte, (int, float)):
+        fuso = coord.get("fuso") or 22
+        hemisferio = (coord.get("hemisferio") or "S")
+        ponto = utm_para_lonlat(float(leste), float(norte),
+                                int(fuso), str(hemisferio))
+        if ponto:
+            return ponto
+    return None
+
+
 def executar_analise(arquivos: list, tipo_selecionado: str,
                      natureza_selecionada: str = "Primeira licença") -> None:
     """Processa os arquivos carregados e monta o estado do processo.
@@ -387,12 +418,18 @@ def executar_analise(arquivos: list, tipo_selecionado: str,
     if rt_principal.get("registro_art"):
         arts_formulario.append({"numero": rt_principal.get("registro_art"),
                                 "nome": rt_principal.get("nome"),
-                                "secao": "8"})
+                                "secao": "8",
+                                "registro": rt_principal.get("registro_crea")})
+    # Seção 4.3: PODEM EXISTIR VÁRIAS RTTs/ARTs (Projeto Urbanístico,
+    # Execução de Obras...). Cada uma entra com o conselho do profissional:
+    # RTT/RRT é do CAU/BR; ART é do CREA/CRBio.
     for prof in dados.get("responsaveis_etapas") or []:
         if prof.get("art_rtt"):
             arts_formulario.append({"numero": prof.get("art_rtt"),
                                     "nome": prof.get("nome"),
-                                    "secao": "4.3"})
+                                    "secao": "4.3",
+                                    "registro": prof.get("registro"),
+                                    "etapa": prof.get("etapa")})
     # áreas declaradas no formulário (conferência de projetos urbanísticos)
     _emp = dados.get("empreendimento") or {}
     areas_formulario = {"area_total_ha": _emp.get("area_total_ha"),
@@ -411,6 +448,30 @@ def executar_analise(arquivos: list, tipo_selecionado: str,
                 arts_formulario=arts_formulario or None,
                 areas_formulario=areas_formulario or None,
                 tipo_documento=registro["tipo"]))
+
+    # ---- Camadas GIS: leitura + conferência geométrica ---------------
+    # (skill gis-multicamadas: camadas têm confronto GEOMÉTRICO e NUNCA
+    #  recebem TR de conteúdo - o AuditorTecnico já as exclui do roteamento)
+    camadas_gis: list[dict] = []
+    coordenada_form = _ponto_do_formulario(dados)
+    agente_gis = AgenteGIS()
+    for arq in documentos:
+        if Path(arq.name).suffix.lower() not in EXTENSOES_GIS:
+            continue
+        pacote = agente_gis.ler(arq.name, arq.getvalue())
+        for res in agente_gis.conferir(
+                arq.name, pacote, areas_formulario=areas_formulario or None,
+                ponto_empreendimento=coordenada_form):
+            camadas_gis.append({
+                "arquivo": res.documento_analisado,
+                "camada": (res.metricas or {}).get("camada_area") or arq.name,
+                "tema": (res.metricas or {}).get("tema") or "",
+                "status": res.status.value,
+                "norma_tr": res.norma_tr,
+                "erros": list(res.itens_reprovados or []),
+                "avisos": [],
+                "metricas": res.metricas or {},
+            })
 
     # o formulário também participa do casamento do quadro
     for form in formularios:
@@ -443,6 +504,7 @@ def executar_analise(arquivos: list, tipo_selecionado: str,
         "admin": admin,
         "financeiro": financeiro,
         "tecnicos": resultados_tecnicos,
+        "camadas_gis": camadas_gis,
         "analises": {k: v for k, v in analises.items()},
         "quadro": quadro,
         "extras": [e.get("nome") for e in extras],
@@ -530,14 +592,16 @@ def pagina_upload() -> None:
     st.markdown(
         "### 2️⃣ Envie a documentação do processo\n"
         "**Formatos aceitos:** formulário `.htm`/`.html`, `.pdf`, "
-        "Word (`.docx`), Excel (`.xlsx`), `.txt`/`.csv`.")
+        "Word (`.docx`), Excel (`.xlsx`), `.txt`/`.csv`, imagens e "
+        "**camadas GIS (`.kml`/`.kmz`/`.geojson`/`.gpx`)** exigidas pelo "
+        "checklist (projeto urbanístico, curvas de nível e mapa de APPs).")
 
     arquivos = st.file_uploader(
         "Documentos do processo (formulário + anexos)",
         type=FORMATOS_UPLOAD, accept_multiple_files=True,
         help="Inclua o formulário do requerimento (.htm/.html) e todos os "
-             "documentos exigidos para a licença selecionada (matrícula, ART, "
-             "laudos, PGRS, alvarás, etc.).")
+             "documentos exigidos para a licença selecionada (matrícula, "
+             "ART/RTT, laudos, PGRS, alvarás, camadas GIS KMZ/KML etc.).")
 
     if arquivos:
         st.markdown(f"**{len(arquivos)} arquivo(s) carregado(s):**")
@@ -821,6 +885,37 @@ def pagina_analise() -> None:
                 st.markdown(f"- ✅ **{md_seguro(doc['nome'])}** — *{md_seguro(doc['norma_tr'])}*{extra_info}")
 
     # --------------------------------------------------------------
+    # CAMADAS GIS (skill gis-multicamadas): confronto GEOMÉTRICO
+    # Cada camada tem tema próprio (geologia, drenagem, APP, curvas de nível,
+    # projeto urbanístico...) e NUNCA recebe TR de conteúdo - por isso estas
+    # camadas ficam fora do bloco de laudos acima.
+    # --------------------------------------------------------------
+    camadas_gis = processo.get("camadas_gis") or []
+    if camadas_gis:
+        with st.expander(f"🗺️ Camadas GIS — confronto geométrico "
+                         f"({len(camadas_gis)})",
+                         expanded=any(c["status"] != "CONFORME"
+                                      for c in camadas_gis)):
+            st.caption(NORMA_GIS)
+            for cam in camadas_gis:
+                emoji = emoji_status_tecnico(
+                    StatusValidacao(cam["status"])) if cam.get("status") \
+                    else "🟡"
+                with st.container(border=True):
+                    st.markdown(
+                        f"**{emoji} {md_seguro(str(cam.get('camada')))}** "
+                        f"· `{md_seguro(str(cam.get('arquivo')))}` · "
+                        f"tema **{md_seguro(str(cam.get('tema') or '—'))}** · "
+                        f"**{cam.get('status')}**")
+                    for erro in cam.get("erros") or []:
+                        st.markdown(f"- ⚠️ {md_seguro(erro)}")
+                    for aviso in cam.get("avisos") or []:
+                        st.markdown(f"- 🔎 {md_seguro(aviso)}")
+                    met = cam.get("metricas") or {}
+                    if met:
+                        st.json(met)
+
+    # --------------------------------------------------------------
     # ADMINISTRATIVO + TAXA (compactos)
     # --------------------------------------------------------------
     with st.expander(f"🏛️ Triagem administrativa — {admin.get('status_geral', '—')}",
@@ -861,6 +956,36 @@ def pagina_analise() -> None:
                            + str(conf.get("art_rtt"))
                            + " NÃO confirmada nos anexos (etapa: "
                            + etapa_txt + ").")
+
+        # Registros ANEXADOS que não foram declarados no formulário
+        # (podem existir VÁRIAS RTTs: Projeto Urbanístico, Execução de Obras...)
+        for reg in admin.get("conferencia_rtts_anexadas") or []:
+            st.warning(
+                "🟡 " + str(reg.get("tipo")) + " nº " + str(reg.get("numero"))
+                + " (" + str(reg.get("nome") or "profissional não identificado")
+                + ", " + str(reg.get("conselho") or "conselho não identificado")
+                + ") está anexada em `" + str(reg.get("anexo"))
+                + "` mas NÃO foi declarada no formulário (4.3/item 14) — "
+                "atividade: " + str(reg.get("atividade") or "não informada")
+                + ".")
+
+        # MATRÍCULA e CONTRATO SOCIAL x dados declarados (confronto bilateral)
+        for rotulo, chave in (("Matrícula", "conferencia_matricula"),
+                              ("Contrato Social", "conferencia_contrato_social")):
+            conf = admin.get(chave)
+            if not conf:
+                continue
+            status_conf = conf.get("status")
+            if status_conf == "CONFERE":
+                st.success(f"✅ {rotulo} `{conf.get('anexo')}`: "
+                           + md_seguro(str(conf.get("detalhe") or "confere")))
+            elif status_conf == "DIVERGENTE":
+                for item in conf.get("itens_reprovados") or []:
+                    st.warning(f"🟡 {rotulo} `{conf.get('anexo')}`: "
+                               + md_seguro(str(item)))
+            elif status_conf in ("NAO_ENCONTRADO", "ANEXO_NAO_LEGIVEL"):
+                st.warning(f"🟡 {rotulo} `{conf.get('anexo')}`: "
+                           + md_seguro(str(conf.get("detalhe"))))
 
         # Conferência do CNPJ: formulário HTML x número de inscrição na
         # matrícula anexada (PDF escaneado lido via OCR)
